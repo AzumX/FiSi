@@ -1,0 +1,6 @@
+# Eigene Karten und Sicherungen nie einchecken
+private/
+*.backup.json
+ap1-trainer-*.json
+u-form*.json
+dist/
