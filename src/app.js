@@ -978,6 +978,7 @@ function parseCSV(text) {
 function unwrapImportText(text, name) {
   let t = String(text || '').replace(/^\uFEFF/, '').trim();
   const label = name ? `„${name}“` : 'Der Text';
+  if (/^MSMAMARPCRYPT/.test(t)) throw new Error(`${label} wurde von einer Firmen-App (Microsoft Intune, z. B. Outlook oder Teams) verschlüsselt und kann nicht gelesen werden. Lade die Datei auf einem privaten Weg aufs Handy, z. B. per Google Drive, privater Mail-App, USB-Kabel oder direkt über die Claude-App.`);
   if (!t) throw new Error(`${label} ist leer. Bitte die Datei noch einmal herunterladen und prüfen, ob sie größer als 0 KB ist.`);
   if (t.startsWith('<')) {
     const doc = new DOMParser().parseFromString(t, 'text/html');
