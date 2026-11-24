@@ -352,14 +352,20 @@ function startSession(list, cram, keepOrder) {
   session = { queue, cram, done: 0, total: queue.length, again: 0, shown: false, answer: null };
   renderStudy($('#main'));
 }
-// Übungsaufgaben verweisen per Tag „passt zu u-form Nr. 148, 166“ auf Lernkarten: nach dem Aufdecken aufklappbar zeigen.
+// Übungsaufgaben verweisen per Tag „passt zu u-form Nr. 148, 166“ auf Lernkarten. Nach dem Aufdecken werden die
+// verknüpften Karten aufklappbar gezeigt: bei einer Übung die Lernkarten, bei einer Lernkarte die passenden Übungen.
+const refNums = c => c.tags.filter(t => /^passt zu u-form/i.test(t)).flatMap(t => t.match(/\d+/g) || []).map(Number);
 function relatedHtml(c) {
-  const ids = [...new Set(c.tags.filter(t => /^passt zu u-form/i.test(t)).flatMap(t => t.match(/\d+/g) || []))]
-    .map(n => 'uf-' + n.padStart(3, '0')).filter(id => id !== c.id && S.cards.has(id));
+  const ids = c.id.startsWith('uf-')
+    ? [...S.cards.values()].filter(o => refNums(o).includes(+c.id.slice(3))).map(o => o.id)
+    : [...new Set(refNums(c))].map(n => 'uf-' + String(n).padStart(3, '0')).filter(id => id !== c.id && S.cards.has(id));
   if (!ids.length) return '';
-  return `<div class="related"><div class="small muted">Passende Lernkarte${ids.length > 1 ? 'n' : ''}:</div>${ids.map(id => {
+  const title = c.id.startsWith('uf-') ? `Übungsaufgabe${ids.length > 1 ? 'n' : ''} dazu` : `Passende Lernkarte${ids.length > 1 ? 'n' : ''}`;
+  return `<div class="related"><div class="small muted">${title}:</div>${ids.map(id => {
     const r = S.cards.get(id);
-    return `<details class="related-card"><summary><b>Nr. ${+id.slice(3)}</b> · ${esc(r.front.replace(/!\[\]\(bild:\d+\)/g, '').split('\n')[0].slice(0, 90))}</summary>${renderContent(r.back, r.backImages)}</details>`;
+    const label = id.startsWith('uf-') ? `Nr. ${+id.slice(3)}` : 'Übung';
+    const q = r.id.startsWith('uf-') ? '' : renderContent(r.front, r.images);
+    return `<details class="related-card"><summary><b>${label}</b> · ${esc(r.front.replace(/!\[\]\(bild:\d+\)/g, '').replace(/[*_`]/g, '').split('\n')[0].slice(0, 90))}</summary>${q}${q ? '<hr>' : ''}${renderContent(r.back, r.backImages)}</details>`;
   }).join('')}</div>`;
 }
 function renderStudy(main) {
