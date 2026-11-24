@@ -213,3 +213,11 @@ kbd { font-family: var(--font-mono); font-size: .75rem; border: 1px solid var(--
 .order-pool .order-item { border-style: dashed; }
 .order-solution { margin: 6px 0 0; padding-left: 1.6em; }
 .content td, .content th { overflow-wrap: normal; word-break: normal; hyphens: auto; -webkit-hyphens: auto; }
+
+.filltable td.blank { min-width: 7em; background: var(--surface-2); }
+.filltable td.blank input { min-height: 34px; padding: 5px 7px; font-size: .9rem; }
+.filltable td.blank.correct { background: var(--good-soft); cursor: pointer; }
+.filltable td.blank.wrong { background: var(--bad-soft); cursor: pointer; }
+.filltable td.blank .given { font-weight: 600; }
+.filltable td.blank .sol { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 4px; color: var(--muted); font-size: .85rem; }
+.filltable td.blank .sol::before { content: 'Lösung: '; font-weight: 600; }

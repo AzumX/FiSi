@@ -10,7 +10,7 @@ const LF = {
   6: 'Serviceanfragen bearbeiten',
   0: 'Ohne Lernfeld'
 };
-const TYPES = { basic: 'Karteikarte', mc: 'Multiple Choice', calc: 'Rechenaufgabe', open: 'Offene Aufgabe', order: 'Reihenfolge' };
+const TYPES = { basic: 'Karteikarte', mc: 'Multiple Choice', calc: 'Rechenaufgabe', open: 'Offene Aufgabe', order: 'Reihenfolge', table: 'Lückentabelle' };
 const RATINGS = ['Nochmal', 'Schwer', 'Gut', 'Leicht'];
 const SCHEMA = 'ap1-trainer/1';
 const DAY = 864e5;
@@ -83,6 +83,12 @@ function normCard(c) {
   if (card.type === 'calc') { card.answer = +String(c.answer).replace(',', '.'); card.unit = c.unit || ''; card.tolerance = c.tolerance != null && c.tolerance !== '' ? +String(c.tolerance).replace(',', '.') : 0.01; }
   if (card.type === 'open' && c.rubric) card.rubric = c.rubric;
   if (card.type === 'order') card.items = (Array.isArray(c.items) ? c.items : String(c.items || '').split('\n')).map(t => String(t).trim()).filter(Boolean);
+  if (card.type === 'table') {
+    card.table = String(c.table || '').trim();
+    // blanks: Zellen zum Ausfüllen als "Zeile,Spalte" (1-basiert, Kopfzeile zählt nicht); leer = alles außer 1. Spalte
+    card.blanks = (Array.isArray(c.blanks) ? c.blanks : String(c.blanks || '').split(/[;\s]+/)).map(b => String(b).replace(/\s/g, '')).filter(b => /^\d+,\d+$/.test(b));
+    if (c.accept && typeof c.accept === 'object') card.accept = c.accept;
+  }
   return card;
 }
 async function upsertCards(list) {
@@ -96,7 +102,38 @@ async function deleteCards(ids) {
   await DB.del('cards', ids); await DB.del('states', ids);
 }
 const decks = () => [...new Set([...S.cards.values()].map(c => c.deck))].sort();
-const pointsOf = c => c.points || (c.type === 'open' || c.type === 'calc' || c.type === 'order' ? 4 : 2);
+const pointsOf = c => c.points || (c.type === 'table' ? Math.max(2, Math.min(10, Math.ceil(tableBlanks(c).length / 2))) : c.type === 'open' || c.type === 'calc' || c.type === 'order' ? 4 : 2);
+
+// Lückentabelle: Tabelle zerlegen, Lücken bestimmen, Eingaben tolerant vergleichen
+function parseTable(src) {
+  const rows = String(src || '').split('\n').filter(l => /^\s*\|/.test(l));
+  const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(x => x.trim());
+  const sep = r => /^\s*\|[\s\-:|]+\|\s*$/.test(r);
+  const hasHead = rows.length > 1 && sep(rows[1]);
+  return { head: hasHead ? cells(rows[0]) : null, rows: rows.filter((r, k) => !sep(r) && !(hasHead && k === 0)).map(cells) };
+}
+function tableBlanks(c) {
+  const t = parseTable(c.table);
+  if (c.blanks && c.blanks.length) return c.blanks.filter(b => { const [r, k] = b.split(',').map(Number); return t.rows[r - 1] && t.rows[r - 1][k - 1] != null; });
+  const out = []; t.rows.forEach((row, r) => row.forEach((x, k) => { if (k > 0 && x && x !== '–' && x !== '-') out.push(`${r + 1},${k + 1}`); })); return out;
+}
+const foldTxt = s => String(s || '').toLowerCase().replace(/\*\*|`|_/g, '').replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss').replace(/[^a-z0-9%]+/g, ' ').trim();
+const STOP = new Set('der die das und oder ein eine einer eines einem einen mit von fuer auf bei den dem des ist sind wird werden nicht nur auch als wie aus zum zur durch sehr'.split(' '));
+const MODS = new Set('sehr nicht kein keine keiner wenig gering extrem un'.split(' '));
+const keyWords = s => foldTxt(s).split(' ').filter(w => (w.length >= 4 || /\d/.test(w)) && !STOP.has(w));
+function cellHit(sol, given, alts) {
+  const a = foldTxt(given); if (!a) return false;
+  return [sol, ...(alts || [])].some(x => {
+    const s = foldTxt(x); if (!s) return false;
+    // ganze Lösung im Text enthalten zählt, außer ein Zusatz wie „sehr“ oder „nicht“ ändert die Bedeutung („sehr hoch“ ≠ „hoch“)
+    if (a === s || ((' ' + a + ' ').includes(' ' + s + ' ') && !a.split(' ').some(w => MODS.has(w) && !s.split(' ').includes(w)))) return true;
+    const kw = keyWords(x); if (kw.length < 2) return false;
+    // längere Zellen: mindestens die Hälfte der Schlüsselwörter (auch als Wortanfang) genannt
+    const aw = a.split(' ');
+    const n = kw.filter(w => aw.some(v => v === w || (v.length >= 4 && (w.startsWith(v) || v.startsWith(w))))).length;
+    return n >= Math.ceil(kw.length / 2);
+  });
+}
 
 // ---------- Helpers ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -397,7 +434,7 @@ function renderStudy(main) {
     <div id="st-answer" class="a" hidden></div>
   </article>
   <div id="st-actions">
-    <button class="btn primary" id="st-show" style="width:100%">${c.type === 'mc' || c.type === 'calc' || c.type === 'order' ? 'Prüfen' : 'Antwort zeigen'}</button>
+    <button class="btn primary" id="st-show" style="width:100%">${c.type === 'mc' || c.type === 'calc' || c.type === 'order' || c.type === 'table' ? 'Prüfen' : 'Antwort zeigen'}</button>
   </div>
   <div class="small muted">Karte bearbeiten: <a href="#karten" id="st-edit">${esc(c.id)}</a></div>`;
   bindOrder(c, 'st');
@@ -411,8 +448,15 @@ function renderStudy(main) {
     $('#st-answer').innerHTML = resultHtml(c, result) + renderContent(c.back, c.backImages) + relatedHtml(c);
     if (c.type === 'mc') markOptions(c, 'st');
     if (c.type === 'order') markOrder(c, 'st');
-    const sugg = result == null ? null : result.ok ? 3 : 1;
+    const suggOf = r => r == null ? null : r.ok ? 3 : r.part >= .5 && c.type === 'table' ? 2 : 1;
+    const sugg = suggOf(result);
     $('#st-actions').innerHTML = `<div class="rate">${RATINGS.map((r, k) => `<button class="btn r${k + 1} ${sugg === k + 1 ? 'suggest' : ''}" data-g="${k + 1}">${r}<small>${session.cram ? '&nbsp;' : FSRS.fmtInterval(prev[k])}</small></button>`).join('')}</div>`;
+    if (c.type === 'table') markTable(c, 'st', result, () => {
+      result.hits = Object.values(result.cells).filter(Boolean).length; result.ok = result.hits === result.total;
+      const v = $('#tb-verdict'); v.textContent = tableVerdict(result); v.className = 'verdict ' + (result.ok ? 'ok' : 'no');
+      const g = suggOf({ ok: result.ok, part: result.hits / result.total });
+      $('#st-actions').querySelectorAll('[data-g]').forEach(b => b.classList.toggle('suggest', +b.dataset.g === g));
+    });
     $('#st-actions').querySelectorAll('[data-g]').forEach(b => b.onclick = () => rate(+b.dataset.g));
   };
   const rate = async g => {
@@ -436,6 +480,11 @@ function renderStudy(main) {
   };
   $('#st-show').onclick = reveal;
   const onKey = e => {
+    if (e.target.matches('.filltable input') && e.key === 'Enter') {
+      // Enter springt in der Lückentabelle zum nächsten Feld, erst im letzten wird geprüft
+      e.preventDefault(); const all = [...document.querySelectorAll('#st-table input')], k = all.indexOf(e.target);
+      if (k < all.length - 1) all[k + 1].focus(); else if (!session.shown) reveal(); return;
+    }
     if (e.target.matches('input[type=text], textarea, select')) { if (e.key === 'Enter' && !session.shown) { e.preventDefault(); reveal(); } return; }
     if ((e.key === ' ' && !e.target.matches('input')) || e.key === 'Enter') { e.preventDefault(); reveal(); }
     else if (/^[1-4]$/.test(e.key)) rate(+e.key);
@@ -475,6 +524,10 @@ function answerInput(c, p, saved) {
     const pool = c.items.map((t, k) => k).sort(() => Math.random() - .5);
     return `<div class="stack order" id="${p}-order" data-chosen="${esc(JSON.stringify(saved || []))}" data-pool="${esc(JSON.stringify(pool))}"><span class="small muted">Tippe die Schritte in der richtigen Reihenfolge an. Antippen in deiner Liste nimmt einen Schritt zurück.</span><ol class="order-chosen"></ol><div class="order-pool"></div></div>`;
   }
+  if (c.type === 'table') {
+    const t = parseTable(c.table), bl = new Set(tableBlanks(c)), sv = saved || {};
+    return `<div class="stack"><span class="small muted">Fülle die leeren Felder aus. Stichworte reichen, Groß-/Kleinschreibung ist egal.</span><div class="tablewrap" lang="de"><table class="filltable content" id="${p}-table">${t.head ? '<tr>' + t.head.map(h => `<th>${md(h)}</th>`).join('') + '</tr>' : ''}${t.rows.map((row, r) => '<tr>' + row.map((x, k) => { const key = `${r + 1},${k + 1}`; return bl.has(key) ? `<td class="blank" data-cell="${key}"><input type="text" autocomplete="off" aria-label="${esc(((t.head && t.head[k]) || 'Spalte ' + (k + 1)) + ', ' + foldTxt(row[0]).slice(0, 40))}" value="${esc(sv[key] || '')}"></td>` : `<td>${md(x)}</td>`; }).join('') + '</tr>').join('')}</table></div></div>`;
+  }
   if (c.type === 'calc') return `<label class="field">Dein Ergebnis${c.unit ? ' in ' + esc(c.unit) : ''}<input type="text" inputmode="decimal" id="${p}-calc" value="${esc(saved ?? '')}" autocomplete="off"></label>`;
   if (c.type === 'open' && p === 'ex') return `<label class="field">Deine Antwort (Stichpunkte reichen)<textarea id="${p}-open">${esc(saved ?? '')}</textarea></label>`;
   return '';
@@ -502,9 +555,25 @@ function markOrder(c, p) {
   box.querySelectorAll('.order-chosen .order-item').forEach((b, i) => b.classList.add(chosen[i] === i ? 'correct' : 'wrong'));
   box.querySelector('.order-pool').innerHTML = '';
 }
+function markTable(c, p, r, onChange) {
+  const tb = $('#' + p + '-table'); if (!tb || !r) return;
+  const t = parseTable(c.table);
+  tb.querySelectorAll('td.blank').forEach(td => {
+    const key = td.dataset.cell, [rr, k] = key.split(',').map(Number), given = td.querySelector('input') ? td.querySelector('input').value : '';
+    const sol = t.rows[rr - 1][k - 1];
+    td.innerHTML = `<div class="given">${given.trim() ? esc(given) : '<span class="muted">leer</span>'}</div>${foldTxt(given) === foldTxt(sol) ? '' : `<div class="sol">${md(sol)}</div>`}`;
+    td.classList.add(r.cells[key] ? 'correct' : 'wrong');
+    if (onChange) { td.title = 'Antippen, um die Bewertung zu ändern'; td.onclick = () => { r.cells[key] = !r.cells[key]; td.classList.toggle('correct', r.cells[key]); td.classList.toggle('wrong', !r.cells[key]); onChange(); }; }
+  });
+}
+function tableReview(c, ans, cellsOk) {
+  const t = parseTable(c.table), bl = new Set(tableBlanks(c)), a = ans || {};
+  return `<div class="tablewrap" lang="de"><table class="filltable content">${t.head ? '<tr>' + t.head.map(h => `<th>${md(h)}</th>`).join('') + '</tr>' : ''}${t.rows.map((row, r) => '<tr>' + row.map((x, k) => { const key = `${r + 1},${k + 1}`; if (!bl.has(key)) return `<td>${md(x)}</td>`; const g = a[key] || ''; return `<td class="blank ${cellsOk[key] ? 'correct' : 'wrong'}"><div class="given">${g.trim() ? esc(g) : '<span class="muted">leer</span>'}</div>${foldTxt(g) === foldTxt(x) ? '' : `<div class="sol">${md(x)}</div>`}</td>`; }).join('') + '</tr>').join('')}</table></div>`;
+}
 const orderSolution = c => '<ol class="order-solution">' + c.items.map(t => `<li>${md(t)}</li>`).join('') + '</ol>';
 function readAnswer(c, p) {
   if (c.type === 'order') { const b = $('#' + p + '-order'); return b ? JSON.parse(b.dataset.chosen) : []; }
+  if (c.type === 'table') { const o = {}; document.querySelectorAll(`#${p}-table td.blank input`).forEach(i => { if (i.value.trim()) o[i.closest('td').dataset.cell] = i.value.trim(); }); return o; }
   if (c.type === 'mc') return [...document.querySelectorAll(`input[name="${p}-mc"]:checked`)].map(i => +i.value);
   if (c.type === 'calc') { const v = $('#' + p + '-calc'); return v ? v.value : ''; }
   if (c.type === 'open') { const v = $('#' + p + '-open'); return v ? v.value : ''; }
@@ -521,6 +590,12 @@ function evalAnswer(c, ans) {
     const hits = c.items.filter((t, k) => a[k] === k).length;
     return { ok: hits === c.items.length && a.length === c.items.length, auto: true, part: c.items.length ? hits / c.items.length : 0, hits };
   }
+  if (c.type === 'table') {
+    const t = parseTable(c.table), bl = tableBlanks(c), a = ans || {}, cells = {};
+    bl.forEach(key => { const [r, k] = key.split(',').map(Number); cells[key] = cellHit(t.rows[r - 1][k - 1], a[key], c.accept && c.accept[key] && [].concat(c.accept[key])); });
+    const hits = bl.filter(k => cells[k]).length;
+    return { ok: hits === bl.length, auto: true, part: bl.length ? hits / bl.length : 0, hits, total: bl.length, cells };
+  }
   if (c.type === 'calc') {
     const v = parseFloat(String(ans).replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
     if (!Number.isFinite(v)) return { ok: false, auto: true, given: ans };
@@ -533,9 +608,11 @@ function checkAnswer(c, p) { return evalAnswer(c, readAnswer(c, p)); }
 function resultHtml(c, r) {
   if (!r) return '';
   if (c.type === 'order') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : `Nicht ganz: ${r.hits} von ${c.items.length} an der richtigen Stelle`}</div>${r.ok ? '' : '<span class="eyebrow">Richtige Reihenfolge</span>' + orderSolution(c)}<br>`;
+  if (c.type === 'table') return `<div class="verdict ${r.ok ? 'ok' : 'no'}" id="tb-verdict">${tableVerdict(r)}</div><p class="small muted">Die App vergleicht nach Stichworten. Tippe auf ein Feld, wenn die Bewertung nicht passt.</p>`;
   if (c.type === 'calc') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Falsch'}: Lösung ${fmtRes(c.answer)} ${esc(c.unit)}</div><br>`;
   return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Nicht ganz'}</div><br>`;
 }
+const tableVerdict = r => r.hits === r.total ? `Richtig: alle ${r.total} Felder` : `${r.hits} von ${r.total} Feldern richtig`;
 function markOptions(c, p) {
   c.options.forEach((o, k) => {
     const el = $('#' + p + '-opt-' + k); if (!el) return;
@@ -596,6 +673,7 @@ function viewEditor(main, card) {
     <div class="row"><label class="btn small">Bild zur Frage<input type="file" accept="image/*" id="ed-img" multiple hidden></label><span class="small muted" id="ed-imgs">${c.images.length} Bild(er)</span><button class="btn ghost small" id="ed-imgclear" ${c.images.length ? '' : 'hidden'}>Bilder entfernen</button></div>
     <div id="ed-mc" class="stack" hidden><label class="field">Antwortoptionen (eine pro Zeile, richtige mit * davor)<textarea id="ed-options" class="mono">${esc(optText)}</textarea></label></div>
     <div id="ed-order" class="stack" hidden><label class="field">Schritte in der richtigen Reihenfolge (einer pro Zeile, die App mischt sie)<textarea id="ed-items" class="mono">${esc((c.items || []).join('\n'))}</textarea></label></div>
+    <div id="ed-table" class="stack" hidden><label class="field">Lösungstabelle (Markdown, erste Zeile = Kopfzeile)<textarea id="ed-tabsrc" class="mono" style="min-height:120px">${esc(c.table || '| | Spalte A | Spalte B |\n|---|---|---|\n| Zeile 1 | … | … |')}</textarea></label><label class="field">Lücken als Zeile,Spalte (z. B. <code>1,2; 3,3</code>, leer = alles außer 1. Spalte)<input type="text" id="ed-blanks" value="${esc((c.blanks || []).join('; '))}"></label></div>
     <div id="ed-calc" class="fields" hidden>
       <label class="field">Ergebnis<input type="text" id="ed-answer" inputmode="decimal" value="${c.answer ?? ''}"></label>
       <label class="field">Einheit<input type="text" id="ed-unit" value="${esc(c.unit || '')}"></label>
@@ -611,7 +689,7 @@ function viewEditor(main, card) {
   <section class="panel"><span class="eyebrow">Vorschau</span><div id="ed-preview"></div></section>`;
   const sync = () => {
     const t = $('#ed-type').value;
-    $('#ed-mc').hidden = t !== 'mc'; $('#ed-calc').hidden = t !== 'calc'; $('#ed-order').hidden = t !== 'order';
+    $('#ed-mc').hidden = t !== 'mc'; $('#ed-calc').hidden = t !== 'calc'; $('#ed-order').hidden = t !== 'order'; $('#ed-table').hidden = t !== 'table';
     $('#ed-preview').innerHTML = renderContent($('#ed-front').value, c.images) + '<hr style="border:0;border-top:1px dashed var(--line)">' + renderContent($('#ed-back-text').value, c.backImages);
   };
   ['ed-type', 'ed-front', 'ed-back-text'].forEach(id => $('#' + id).addEventListener('input', sync));
@@ -632,9 +710,10 @@ function viewEditor(main, card) {
     const raw = {
       ...c, id, deck: $('#ed-deck').value.trim() || 'eigene', lf: +$('#ed-lf').value, type: $('#ed-type').value, topic: $('#ed-topic').value.trim(),
       points: $('#ed-points').value, level: $('#ed-level').value, front: $('#ed-front').value, back: $('#ed-back-text').value, tags: $('#ed-tags').value, source: $('#ed-source').value.trim(),
-      options: $('#ed-options').value.split('\n').map(s => s.trim()).filter(Boolean), answer: $('#ed-answer').value, unit: $('#ed-unit').value, tolerance: $('#ed-tol').value, items: $('#ed-items').value, updated: Date.now()
+      options: $('#ed-options').value.split('\n').map(s => s.trim()).filter(Boolean), answer: $('#ed-answer').value, unit: $('#ed-unit').value, tolerance: $('#ed-tol').value, items: $('#ed-items').value, table: $('#ed-tabsrc').value, blanks: $('#ed-blanks').value, updated: Date.now()
     };
     if (raw.type === 'mc' && (raw.options.length < 2 || !raw.options.some(o => o.startsWith('*')))) return toast('Multiple Choice braucht mind. 2 Optionen und eine mit *.');
+    if (raw.type === 'table' && (parseTable(raw.table).rows.length < 1 || !tableBlanks(normCard(raw)).length)) return toast('Lückentabelle braucht eine Tabelle und mindestens eine Lücke.');
     if (raw.type === 'order' && raw.items.split('\n').filter(t => t.trim()).length < 2) return toast('Reihenfolge braucht mind. 2 Schritte.');
     if (raw.type === 'calc' && !Number.isFinite(+String(raw.answer).replace(',', '.'))) return toast('Bitte ein Ergebnis als Zahl angeben.');
     await upsertCards([raw]);
@@ -738,7 +817,8 @@ function renderGrading(main) {
   items.forEach(c => {
     if (exam.scores[c.id] != null) return;
     const r = evalAnswer(c, exam.answers[c.id] ?? (c.type === 'mc' ? [] : ''));
-    if (r) exam.scores[c.id] = r.ok ? pointsOf(c) : r.part ? Math.floor(pointsOf(c) * r.part * 2) / 2 : 0;
+    if (r && c.type === 'table') exam.cells = Object.assign(exam.cells || {}, { [c.id]: r.cells });
+    if (r && !(c.type === 'table' && exam.scores[c.id] != null)) exam.scores[c.id] = r.ok ? pointsOf(c) : r.part ? Math.floor(pointsOf(c) * r.part * 2) / 2 : 0;
   });
   const pending = items.filter(c => exam.scores[c.id] == null).length;
   const max = items.reduce((s, c) => s + pointsOf(c), 0);
@@ -760,9 +840,9 @@ function renderGrading(main) {
     const sc = exam.scores[c.id];
     return `<section class="panel"><div class="row spread"><h3>Aufgabe ${k + 1}</h3><span class="chip ${sc == null ? 'warn' : sc >= p ? 'good' : sc > 0 ? 'warn' : 'bad'}">${sc == null ? 'offen' : fmtNum(sc, 1) + ' / ' + p}</span></div>
       ${renderContent(c.front, c.images)}
-      <div><span class="eyebrow">Deine Antwort</span><div class="content">${given ? md(String(given)) : '<span class="muted">keine</span>'}</div></div>
+      ${c.type === 'table' ? `<div><span class="eyebrow">Deine Antwort und Lösung</span>${tableReview(c, a, (exam.cells || {})[c.id] || {})}</div>` : `<div><span class="eyebrow">Deine Antwort</span><div class="content">${given ? md(String(given)) : '<span class="muted">keine</span>'}</div></div>`}
       <div><span class="eyebrow">Lösung</span>${c.type === 'mc' ? '<div class="content">' + c.options.filter(o => o.correct).map(o => md(o.text)).join('<br>') + '</div>' : ''}${c.type === 'calc' ? `<div class="content"><b>${fmtRes(c.answer)} ${esc(c.unit)}</b></div>` : ''}${c.type === 'order' ? orderSolution(c) : ''}${renderContent(c.back, c.backImages)}</div>
-      ${c.type === 'basic' || c.type === 'open' ? `<div class="row"><span class="small muted">Punkte:</span>${[0, .25, .5, .75, 1].map(f => { const v = Math.round(p * f * 2) / 2; return `<button class="btn small ${sc === v ? 'primary' : ''}" data-score="${c.id}" data-v="${v}">${fmtNum(v, 1)}</button>`; }).filter((v, i, arr) => arr.indexOf(v) === i).join('')}</div>` : ''}
+      ${c.type === 'basic' || c.type === 'open' || c.type === 'table' ? `<div class="row"><span class="small muted">${c.type === 'table' ? 'Punkte (automatisch vorgeschlagen, bei Bedarf anpassen):' : 'Punkte:'}</span>${[0, .25, .5, .75, 1].map(f => { const v = Math.round(p * f * 2) / 2; return `<button class="btn small ${sc === v ? 'primary' : ''}" data-score="${c.id}" data-v="${v}">${fmtNum(v, 1)}</button>`; }).filter((v, i, arr) => arr.indexOf(v) === i).join('')}</div>` : ''}
     </section>`;
   }).join('')}`;
   main.querySelectorAll('[data-score]').forEach(b => b.onclick = () => { const y = window.scrollY; exam.scores[b.dataset.score] = +b.dataset.v; renderGrading(main); window.scrollTo(0, y); });
@@ -873,7 +953,7 @@ function parseCSV(text) {
   }
   if (cell || row.length) { row.push(cell); rows.push(row); }
   const head = rows.shift().map(h => h.trim().toLowerCase());
-  const alias = { frage: 'front', vorderseite: 'front', antwort: 'back', rückseite: 'back', lernfeld: 'lf', thema: 'topic', typ: 'type', stapel: 'deck', optionen: 'options', ergebnis: 'answer', einheit: 'unit', punkte: 'points', quelle: 'source', toleranz: 'tolerance', schwierigkeit: 'level' };
+  const alias = { frage: 'front', vorderseite: 'front', antwort: 'back', rückseite: 'back', lernfeld: 'lf', thema: 'topic', typ: 'type', stapel: 'deck', optionen: 'options', ergebnis: 'answer', einheit: 'unit', punkte: 'points', quelle: 'source', toleranz: 'tolerance', schwierigkeit: 'level', tabelle: 'table', luecken: 'blanks', lücken: 'blanks' };
   return rows.filter(r => r.some(x => x.trim())).map(r => {
     const o = {}; head.forEach((h, k) => o[alias[h] || h] = (r[k] || '').trim());
     if (o.options) o.options = o.options.split('|').map(s => s.trim()).filter(Boolean);
