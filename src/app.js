@@ -352,6 +352,16 @@ function startSession(list, cram, keepOrder) {
   session = { queue, cram, done: 0, total: queue.length, again: 0, shown: false, answer: null };
   renderStudy($('#main'));
 }
+// Übungsaufgaben verweisen per Tag „passt zu u-form Nr. 148, 166“ auf Lernkarten: nach dem Aufdecken aufklappbar zeigen.
+function relatedHtml(c) {
+  const ids = [...new Set(c.tags.filter(t => /^passt zu u-form/i.test(t)).flatMap(t => t.match(/\d+/g) || []))]
+    .map(n => 'uf-' + n.padStart(3, '0')).filter(id => id !== c.id && S.cards.has(id));
+  if (!ids.length) return '';
+  return `<div class="related"><div class="small muted">Passende Lernkarte${ids.length > 1 ? 'n' : ''}:</div>${ids.map(id => {
+    const r = S.cards.get(id);
+    return `<details class="related-card"><summary><b>Nr. ${+id.slice(3)}</b> · ${esc(r.front.replace(/!\[\]\(bild:\d+\)/g, '').split('\n')[0].slice(0, 90))}</summary>${renderContent(r.back, r.backImages)}</details>`;
+  }).join('')}</div>`;
+}
 function renderStudy(main) {
   const id = session.queue[0];
   const c = S.cards.get(id);
@@ -379,7 +389,7 @@ function renderStudy(main) {
     session.shown = true;
     const result = checkAnswer(c, 'st');
     $('#st-answer').hidden = false;
-    $('#st-answer').innerHTML = resultHtml(c, result) + renderContent(c.back, c.backImages);
+    $('#st-answer').innerHTML = resultHtml(c, result) + renderContent(c.back, c.backImages) + relatedHtml(c);
     if (c.type === 'mc') markOptions(c, 'st');
     const sugg = result == null ? null : result.ok ? 3 : 1;
     $('#st-actions').innerHTML = `<div class="rate">${RATINGS.map((r, k) => `<button class="btn r${k + 1} ${sugg === k + 1 ? 'suggest' : ''}" data-g="${k + 1}">${r}<small>${session.cram ? '&nbsp;' : FSRS.fmtInterval(prev[k])}</small></button>`).join('')}</div>`;
