@@ -171,27 +171,39 @@ async function shrinkImage(file, max = 1400) {
 }
 
 // ---------- Filters ----------
-const filter = { lf: 'all', deck: 'all', type: 'all', q: '' };
+const filter = { lf: 'all', deck: 'all', topic: 'all', type: 'all', q: '' };
 function filtered(f = filter) {
   const q = f.q.trim().toLowerCase();
   return [...S.cards.values()].filter(c =>
     (f.lf === 'all' || String(c.lf) === String(f.lf)) &&
     (f.deck === 'all' || c.deck === f.deck) &&
+    (!f.topic || f.topic === 'all' || c.topic === f.topic) &&
     (f.type === 'all' || c.type === f.type) &&
     (!q || (c.front + ' ' + c.back + ' ' + c.topic + ' ' + c.tags.join(' ') + ' ' + c.source).toLowerCase().includes(q)));
 }
+// Themen, die zu Lernfeld + Stapel passen (für das Themen-Auswahlfeld)
+const topicsFor = () => [...new Set(filtered({ ...filter, topic: 'all', type: 'all', q: '' }).map(c => c.topic).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
 function filterControls(prefix, opts = {}) {
   return `<div class="fields">
     <label class="field">Lernfeld<select id="${prefix}-lf">${['all', 1, 2, 3, 4, 5, 6, 0].map(v => `<option value="${v}" ${String(filter.lf) === String(v) ? 'selected' : ''}>${v === 'all' ? 'Alle Lernfelder' : (v ? 'LF ' + v + ' · ' : '') + LF[v]}</option>`).join('')}</select></label>
     <label class="field">Stapel<select id="${prefix}-deck"><option value="all">Alle Stapel</option>${decks().map(d => `<option ${filter.deck === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
+    <label class="field">Thema<select id="${prefix}-topic"><option value="all">Alle Themen</option>${topicsFor().map(t => `<option ${filter.topic === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
     ${opts.type ? `<label class="field">Typ<select id="${prefix}-type"><option value="all">Alle Typen</option>${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${filter.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>` : ''}
     ${opts.search ? `<label class="field">Suche<input type="search" id="${prefix}-q" value="${esc(filter.q)}" placeholder="Begriff, Thema, Tag"></label>` : ''}
   </div>`;
 }
 function bindFilter(prefix, rerender) {
-  for (const k of ['lf', 'deck', 'type', 'q']) {
+  for (const k of ['lf', 'deck', 'topic', 'type', 'q']) {
     const el = $('#' + prefix + '-' + k); if (!el) continue;
-    el.addEventListener(k === 'q' ? 'input' : 'change', () => { filter[k] = el.value; rerender(k === 'q'); });
+    el.addEventListener(k === 'q' ? 'input' : 'change', () => {
+      filter[k] = el.value;
+      if (k === 'lf' || k === 'deck') {
+        if (!topicsFor().includes(filter.topic)) filter.topic = 'all';
+        const ts = $('#' + prefix + '-topic');
+        if (ts) ts.innerHTML = '<option value="all">Alle Themen</option>' + topicsFor().map(t => `<option ${filter.topic === t ? 'selected' : ''}>${esc(t)}</option>`).join('');
+      }
+      rerender(k === 'q');
+    });
   }
 }
 
