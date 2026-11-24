@@ -197,7 +197,7 @@ function renderContent(text, images) {
 let toastTimer;
 function toast(msg) {
   let t = $('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.append(t); }
-  t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2600);
+  t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, Math.max(2600, msg.length * 60));
 }
 function levelChip(c) { return c.level ? `<span class="chip" title="Schwierigkeit ${c.level} von 3">${'●'.repeat(c.level)}${'○'.repeat(3 - c.level)}</span>` : ''; }
 function lfChip(lf) { return `<span class="chip lf" title="${esc(LF[lf] || '')}">${lf ? 'LF ' + lf : 'ohne LF'}</span>`; }
@@ -961,17 +961,36 @@ function parseCSV(text) {
     return o;
   });
 }
+// Text aus einer Datei aufbereiten: BOM entfernen und JSON aus einer HTML-Hülle holen
+// (z. B. wenn der Handy-Browser die Datei als Webseite gespeichert hat)
+function unwrapImportText(text, name) {
+  let t = String(text || '').replace(/^\uFEFF/, '').trim();
+  const label = name ? `„${name}“` : 'Der Text';
+  if (!t) throw new Error(`${label} ist leer. Bitte die Datei noch einmal herunterladen und prüfen, ob sie größer als 0 KB ist.`);
+  if (t.startsWith('<')) {
+    const doc = new DOMParser().parseFromString(t, 'text/html');
+    const inner = (doc.querySelector('pre') || doc.body || doc.documentElement).textContent.trim();
+    const k = inner.search(/[\[{]/);
+    if (k < 0) throw new Error(`${label} ist eine Webseite und keine Kartendatei. Lade die Datei direkt herunter (nicht im Browser öffnen und speichern).`);
+    t = inner.slice(k);
+  }
+  return t;
+}
 async function importCardsText(text, name = '') {
   let list;
-  const t = text.trim();
+  const t = unwrapImportText(text, name);
   if (t.startsWith('{') || t.startsWith('[')) {
     const d = JSON.parse(t);
     if (d.schema === SCHEMA) return mergeData(d);
     list = Array.isArray(d) ? d : d.cards;
     if (!Array.isArray(list)) throw new Error('JSON enthält kein Karten-Array');
     // Prüfungs-Format: { exam: "...", deck, tasks: [...] } wird wie cards behandelt
-  } else list = parseCSV(text);
+  } else {
+    list = parseCSV(t);
+    if (list.length && !list.some(c => c.front)) throw new Error(`In ${name ? '„' + name + '“' : 'dem Text'} fehlt die Spalte „front“ bzw. „Frage“. Anfang der Datei: ${t.slice(0, 60)}`);
+  }
   const bad = list.filter(c => !c.front);
+  if (!list.length || bad.length === list.length) throw new Error(`Keine Karten gefunden${name ? ' in „' + name + '“' : ''}. Anfang der Datei: ${t.slice(0, 60)}`);
   list = list.filter(c => c.front);
   const n = await upsertCards(list);
   return `${n} Karten importiert${bad.length ? `, ${bad.length} ohne Frage übersprungen` : ''}${name ? ' aus ' + name : ''}`;
@@ -995,7 +1014,7 @@ function viewData(main) {
       <button class="btn primary" id="dt-export">Sicherung speichern</button>
       <button class="btn" id="dt-share">Teilen …</button>
       <button class="btn" id="dt-copy">In Zwischenablage</button>
-      <label class="btn">Sicherung einlesen<input type="file" id="dt-import" accept=".json,application/json" hidden></label>
+      <label class="btn">Sicherung einlesen<input type="file" id="dt-import" accept=".json,.txt,application/json,text/plain" hidden></label>
     </div>
     <details><summary class="small">Sicherung als Text einfügen</summary><div class="stack" style="margin-top:8px"><textarea id="dt-paste" class="mono" placeholder="Inhalt der Sicherungsdatei hier einfügen"></textarea><button class="btn" id="dt-paste-go">Einlesen</button></div></details>
     <p class="small muted">Letzter Export: ${S.settings.lastExport ? new Date(S.settings.lastExport).toLocaleString('de-DE') : 'noch nie'}</p>
@@ -1003,7 +1022,7 @@ function viewData(main) {
   <section class="panel">
     <h2>Karten und Prüfungsaufgaben importieren</h2>
     <p class="small muted">JSON im AP1-Trainer-Format oder CSV mit Kopfzeile, z. B. <code>id;lf;thema;typ;frage;antwort;optionen;ergebnis;einheit;punkte;stapel;quelle</code>. Bei Multiple Choice die Optionen mit <code>|</code> trennen und richtige mit <code>*</code> markieren. Gleiche ID überschreibt die Karte, der Lernstand bleibt.</p>
-    <div class="row"><label class="btn primary">Datei wählen<input type="file" id="dt-cards" accept=".json,.csv,.txt,.tsv" multiple hidden></label></div>
+    <div class="row"><label class="btn primary">Datei wählen<input type="file" id="dt-cards" accept=".json,.csv,.txt,.tsv,application/json,text/plain,text/csv,text/html" multiple hidden></label></div>
     <details><summary class="small">Als Text einfügen</summary><div class="stack" style="margin-top:8px"><textarea id="dt-cardtext" class="mono" placeholder='[{"id":"uf-001","lf":3,"type":"basic","front":"…","back":"…"}]'></textarea><button class="btn" id="dt-cardtext-go">Importieren</button></div></details>
   </section>
   <section class="panel">
@@ -1038,7 +1057,7 @@ function viewData(main) {
     catch (e) { const ta = $('#dt-paste'); ta.closest('details').open = true; ta.value = json(); ta.select(); toast('Text markiert, bitte manuell kopieren'); }
   };
   const doImport = async (fn) => { try { toast(await fn()); } catch (e) { toast('Import fehlgeschlagen: ' + e.message); } };
-  $('#dt-import').onchange = e => doImport(async () => { const f = e.target.files[0]; const r = await mergeData(JSON.parse(await readFile(f))); e.target.value = ''; return r; });
+  $('#dt-import').onchange = e => doImport(async () => { const f = e.target.files[0]; const r = await mergeData(JSON.parse(unwrapImportText(await readFile(f), f.name))); e.target.value = ''; return r; });
   $('#dt-paste-go').onclick = () => doImport(async () => mergeData(JSON.parse($('#dt-paste').value)));
   $('#dt-cards').onchange = e => doImport(async () => { const out = []; for (const f of e.target.files) out.push(await importCardsText(await readFile(f), f.name)); e.target.value = ''; return out.join(' · '); });
   $('#dt-cardtext-go').onclick = () => doImport(async () => importCardsText($('#dt-cardtext').value));
