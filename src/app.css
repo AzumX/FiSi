@@ -205,3 +205,10 @@ table.data td.n, table.data th.n { text-align: right; font-variant-numeric: tabu
 .notice { background: var(--warn-soft); color: var(--fg); border-radius: 8px; padding: 10px 12px; font-size: .88rem; }
 kbd { font-family: var(--font-mono); font-size: .75rem; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; }
 @media (prefers-reduced-motion: no-preference) { .studycard { animation: in .18s ease-out; } @keyframes in { from { transform: translateY(4px); opacity: .6; } } }
+.order-chosen { margin: 0; padding-left: 1.6em; display: grid; gap: 8px; min-height: 12px; }
+.order-chosen:empty { display: none; }
+.order-pool { display: grid; gap: 8px; }
+.order-pool:empty { display: none; }
+.order-item { width: 100%; text-align: left; font: inherit; color: inherit; }
+.order-pool .order-item { border-style: dashed; }
+.order-solution { margin: 6px 0 0; padding-left: 1.6em; }

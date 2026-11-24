@@ -10,7 +10,7 @@ const LF = {
   6: 'Serviceanfragen bearbeiten',
   0: 'Ohne Lernfeld'
 };
-const TYPES = { basic: 'Karteikarte', mc: 'Multiple Choice', calc: 'Rechenaufgabe', open: 'Offene Aufgabe' };
+const TYPES = { basic: 'Karteikarte', mc: 'Multiple Choice', calc: 'Rechenaufgabe', open: 'Offene Aufgabe', order: 'Reihenfolge' };
 const RATINGS = ['Nochmal', 'Schwer', 'Gut', 'Leicht'];
 const SCHEMA = 'ap1-trainer/1';
 const DAY = 864e5;
@@ -82,6 +82,7 @@ function normCard(c) {
   if (card.type === 'mc') card.options = (c.options || []).map(o => typeof o === 'string' ? { text: o.replace(/^\*/, ''), correct: o.startsWith('*') } : { text: String(o.text), correct: !!o.correct });
   if (card.type === 'calc') { card.answer = +String(c.answer).replace(',', '.'); card.unit = c.unit || ''; card.tolerance = c.tolerance != null && c.tolerance !== '' ? +String(c.tolerance).replace(',', '.') : 0.01; }
   if (card.type === 'open' && c.rubric) card.rubric = c.rubric;
+  if (card.type === 'order') card.items = (Array.isArray(c.items) ? c.items : String(c.items || '').split('\n')).map(t => String(t).trim()).filter(Boolean);
   return card;
 }
 async function upsertCards(list) {
@@ -95,7 +96,7 @@ async function deleteCards(ids) {
   await DB.del('cards', ids); await DB.del('states', ids);
 }
 const decks = () => [...new Set([...S.cards.values()].map(c => c.deck))].sort();
-const pointsOf = c => c.points || (c.type === 'open' || c.type === 'calc' ? 4 : 2);
+const pointsOf = c => c.points || (c.type === 'open' || c.type === 'calc' || c.type === 'order' ? 4 : 2);
 
 // ---------- Helpers ----------
 const $ = (sel, root = document) => root.querySelector(sel);
@@ -133,9 +134,16 @@ function md(src, images = []) {
       out.push(t + '</table></div>'); continue;
     }
     if (/^\s*[-•]\s+/.test(l)) {
-      const items = [];
-      while (i < lines.length && /^\s*[-•]\s+/.test(lines[i])) items.push(lines[i++].replace(/^\s*[-•]\s+/, ''));
-      out.push('<ul>' + items.map(t => '<li>' + inline(t) + '</li>').join('') + '</ul>'); continue;
+      // Liste; eingerückte Punkte (2+ Leerzeichen) werden zur Unterliste des vorherigen Punkts
+      let html = '<ul>', open = false, sub = false;
+      while (i < lines.length && /^\s*[-•]\s+/.test(lines[i])) {
+        const deep = /^\s{2,}/.test(lines[i]), t = inline(lines[i++].replace(/^\s*[-•]\s+/, ''));
+        if (deep && open) { if (!sub) { html += '<ul>'; sub = true; } html += '<li>' + t + '</li>'; continue; }
+        if (sub) { html += '</ul>'; sub = false; }
+        if (open) html += '</li>';
+        html += '<li>' + t; open = true;
+      }
+      out.push(html + (sub ? '</ul>' : '') + (open ? '</li>' : '') + '</ul>'); continue;
     }
     out.push(l.trim() === '' ? '<br>' : inline(l) + '<br>'); i++;
   }
@@ -385,9 +393,10 @@ function renderStudy(main) {
     <div id="st-answer" class="a" hidden></div>
   </article>
   <div id="st-actions">
-    <button class="btn primary" id="st-show" style="width:100%">${c.type === 'mc' || c.type === 'calc' ? 'Prüfen' : 'Antwort zeigen'}</button>
+    <button class="btn primary" id="st-show" style="width:100%">${c.type === 'mc' || c.type === 'calc' || c.type === 'order' ? 'Prüfen' : 'Antwort zeigen'}</button>
   </div>
   <div class="small muted">Karte bearbeiten: <a href="#karten" id="st-edit">${esc(c.id)}</a></div>`;
+  bindOrder(c, 'st');
   $('#st-end').onclick = () => { session = null; go('home'); };
   $('#st-edit').onclick = e => { e.preventDefault(); editCardId = c.id; go('karten'); };
   const reveal = () => {
@@ -397,6 +406,7 @@ function renderStudy(main) {
     $('#st-answer').hidden = false;
     $('#st-answer').innerHTML = resultHtml(c, result) + renderContent(c.back, c.backImages) + relatedHtml(c);
     if (c.type === 'mc') markOptions(c, 'st');
+    if (c.type === 'order') markOrder(c, 'st');
     const sugg = result == null ? null : result.ok ? 3 : 1;
     $('#st-actions').innerHTML = `<div class="rate">${RATINGS.map((r, k) => `<button class="btn r${k + 1} ${sugg === k + 1 ? 'suggest' : ''}" data-g="${k + 1}">${r}<small>${session.cram ? '&nbsp;' : FSRS.fmtInterval(prev[k])}</small></button>`).join('')}</div>`;
     $('#st-actions').querySelectorAll('[data-g]').forEach(b => b.onclick = () => rate(+b.dataset.g));
@@ -456,11 +466,41 @@ function answerInput(c, p, saved) {
     return `<div class="stack"><span class="small muted">${multi ? 'Mehrere Antworten können richtig sein.' : 'Eine Antwort ist richtig.'}</span><div class="options">${c.options.map((o, k) =>
       `<label class="opt" id="${p}-opt-${k}"><input type="${multi ? 'checkbox' : 'radio'}" name="${p}-mc" value="${k}" ${saved && saved.includes(k) ? 'checked' : ''}><span class="content">${md(o.text)}</span></label>`).join('')}</div></div>`;
   }
+  if (c.type === 'order') {
+    // Zufällige Anzeige-Reihenfolge; gespeichert werden Indizes in c.items (richtige Reihenfolge = 0,1,2,…)
+    const pool = c.items.map((t, k) => k).sort(() => Math.random() - .5);
+    return `<div class="stack order" id="${p}-order" data-chosen="${esc(JSON.stringify(saved || []))}" data-pool="${esc(JSON.stringify(pool))}"><span class="small muted">Tippe die Schritte in der richtigen Reihenfolge an. Antippen in deiner Liste nimmt einen Schritt zurück.</span><ol class="order-chosen"></ol><div class="order-pool"></div></div>`;
+  }
   if (c.type === 'calc') return `<label class="field">Dein Ergebnis${c.unit ? ' in ' + esc(c.unit) : ''}<input type="text" inputmode="decimal" id="${p}-calc" value="${esc(saved ?? '')}" autocomplete="off"></label>`;
   if (c.type === 'open' && p === 'ex') return `<label class="field">Deine Antwort (Stichpunkte reichen)<textarea id="${p}-open">${esc(saved ?? '')}</textarea></label>`;
   return '';
 }
+function bindOrder(c, p) {
+  const box = $('#' + p + '-order'); if (!box || box.dataset.bound) return;
+  box.dataset.bound = '1';
+  const draw = () => {
+    const chosen = JSON.parse(box.dataset.chosen), pool = JSON.parse(box.dataset.pool);
+    box.querySelector('.order-chosen').innerHTML = chosen.map(k => `<li><button type="button" class="opt order-item" data-k="${k}"><span class="content">${md(c.items[k])}</span></button></li>`).join('');
+    box.querySelector('.order-pool').innerHTML = pool.filter(k => !chosen.includes(k)).map(k => `<button type="button" class="opt order-item" data-k="${k}"><span class="content">${md(c.items[k])}</span></button>`).join('');
+  };
+  box.addEventListener('click', e => {
+    const b = e.target.closest('.order-item'); if (!b || box.dataset.locked) return;
+    const chosen = JSON.parse(box.dataset.chosen), k = +b.dataset.k;
+    box.dataset.chosen = JSON.stringify(chosen.includes(k) ? chosen.filter(x => x !== k) : [...chosen, k]);
+    draw();
+  });
+  draw();
+}
+function markOrder(c, p) {
+  const box = $('#' + p + '-order'); if (!box) return;
+  box.dataset.locked = '1';
+  const chosen = JSON.parse(box.dataset.chosen);
+  box.querySelectorAll('.order-chosen .order-item').forEach((b, i) => b.classList.add(chosen[i] === i ? 'correct' : 'wrong'));
+  box.querySelector('.order-pool').innerHTML = '';
+}
+const orderSolution = c => '<ol class="order-solution">' + c.items.map(t => `<li>${md(t)}</li>`).join('') + '</ol>';
 function readAnswer(c, p) {
+  if (c.type === 'order') { const b = $('#' + p + '-order'); return b ? JSON.parse(b.dataset.chosen) : []; }
   if (c.type === 'mc') return [...document.querySelectorAll(`input[name="${p}-mc"]:checked`)].map(i => +i.value);
   if (c.type === 'calc') { const v = $('#' + p + '-calc'); return v ? v.value : ''; }
   if (c.type === 'open') { const v = $('#' + p + '-open'); return v ? v.value : ''; }
@@ -471,6 +511,11 @@ function evalAnswer(c, ans) {
     const want = c.options.map((o, k) => o.correct ? k : -1).filter(k => k >= 0);
     const ok = want.length === ans.length && want.every(k => ans.includes(k));
     return { ok, auto: true };
+  }
+  if (c.type === 'order') {
+    const a = ans || [];
+    const hits = c.items.filter((t, k) => a[k] === k).length;
+    return { ok: hits === c.items.length && a.length === c.items.length, auto: true, part: c.items.length ? hits / c.items.length : 0, hits };
   }
   if (c.type === 'calc') {
     const v = parseFloat(String(ans).replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
@@ -483,6 +528,7 @@ function evalAnswer(c, ans) {
 function checkAnswer(c, p) { return evalAnswer(c, readAnswer(c, p)); }
 function resultHtml(c, r) {
   if (!r) return '';
+  if (c.type === 'order') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : `Nicht ganz: ${r.hits} von ${c.items.length} an der richtigen Stelle`}</div>${r.ok ? '' : '<span class="eyebrow">Richtige Reihenfolge</span>' + orderSolution(c)}<br>`;
   if (c.type === 'calc') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Falsch'}: Lösung ${fmtRes(c.answer)} ${esc(c.unit)}</div><br>`;
   return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Nicht ganz'}</div><br>`;
 }
@@ -545,6 +591,7 @@ function viewEditor(main, card) {
     <label class="field">Frage / Vorderseite<textarea id="ed-front">${esc(c.front)}</textarea></label>
     <div class="row"><label class="btn small">Bild zur Frage<input type="file" accept="image/*" id="ed-img" multiple hidden></label><span class="small muted" id="ed-imgs">${c.images.length} Bild(er)</span><button class="btn ghost small" id="ed-imgclear" ${c.images.length ? '' : 'hidden'}>Bilder entfernen</button></div>
     <div id="ed-mc" class="stack" hidden><label class="field">Antwortoptionen (eine pro Zeile, richtige mit * davor)<textarea id="ed-options" class="mono">${esc(optText)}</textarea></label></div>
+    <div id="ed-order" class="stack" hidden><label class="field">Schritte in der richtigen Reihenfolge (einer pro Zeile, die App mischt sie)<textarea id="ed-items" class="mono">${esc((c.items || []).join('\n'))}</textarea></label></div>
     <div id="ed-calc" class="fields" hidden>
       <label class="field">Ergebnis<input type="text" id="ed-answer" inputmode="decimal" value="${c.answer ?? ''}"></label>
       <label class="field">Einheit<input type="text" id="ed-unit" value="${esc(c.unit || '')}"></label>
@@ -560,7 +607,7 @@ function viewEditor(main, card) {
   <section class="panel"><span class="eyebrow">Vorschau</span><div id="ed-preview"></div></section>`;
   const sync = () => {
     const t = $('#ed-type').value;
-    $('#ed-mc').hidden = t !== 'mc'; $('#ed-calc').hidden = t !== 'calc';
+    $('#ed-mc').hidden = t !== 'mc'; $('#ed-calc').hidden = t !== 'calc'; $('#ed-order').hidden = t !== 'order';
     $('#ed-preview').innerHTML = renderContent($('#ed-front').value, c.images) + '<hr style="border:0;border-top:1px dashed var(--line)">' + renderContent($('#ed-back-text').value, c.backImages);
   };
   ['ed-type', 'ed-front', 'ed-back-text'].forEach(id => $('#' + id).addEventListener('input', sync));
@@ -581,9 +628,10 @@ function viewEditor(main, card) {
     const raw = {
       ...c, id, deck: $('#ed-deck').value.trim() || 'eigene', lf: +$('#ed-lf').value, type: $('#ed-type').value, topic: $('#ed-topic').value.trim(),
       points: $('#ed-points').value, level: $('#ed-level').value, front: $('#ed-front').value, back: $('#ed-back-text').value, tags: $('#ed-tags').value, source: $('#ed-source').value.trim(),
-      options: $('#ed-options').value.split('\n').map(s => s.trim()).filter(Boolean), answer: $('#ed-answer').value, unit: $('#ed-unit').value, tolerance: $('#ed-tol').value, updated: Date.now()
+      options: $('#ed-options').value.split('\n').map(s => s.trim()).filter(Boolean), answer: $('#ed-answer').value, unit: $('#ed-unit').value, tolerance: $('#ed-tol').value, items: $('#ed-items').value, updated: Date.now()
     };
     if (raw.type === 'mc' && (raw.options.length < 2 || !raw.options.some(o => o.startsWith('*')))) return toast('Multiple Choice braucht mind. 2 Optionen und eine mit *.');
+    if (raw.type === 'order' && raw.items.split('\n').filter(t => t.trim()).length < 2) return toast('Reihenfolge braucht mind. 2 Schritte.');
     if (raw.type === 'calc' && !Number.isFinite(+String(raw.answer).replace(',', '.'))) return toast('Bitte ein Ergebnis als Zahl angeben.');
     await upsertCards([raw]);
     toast('Gespeichert'); editCardId = null; viewCards(main);
@@ -658,6 +706,7 @@ function renderExamQ(main) {
   </article>
   <div class="row spread"><button class="btn" id="ex-prev" ${exam.idx ? '' : 'disabled'}>Zurück</button><button class="btn primary" id="ex-next">${exam.idx < exam.ids.length - 1 ? 'Weiter' : 'Zur Abgabe'}</button></div>
   <div id="ex-confirm"></div>`;
+  bindOrder(c, 'ex');
   const goto = k => { save(); exam.idx = k; renderExamQ(main); };
   main.querySelectorAll('.qdot').forEach(b => b.onclick = () => goto(+b.dataset.k));
   $('#ex-prev').onclick = () => goto(exam.idx - 1);
@@ -685,7 +734,7 @@ function renderGrading(main) {
   items.forEach(c => {
     if (exam.scores[c.id] != null) return;
     const r = evalAnswer(c, exam.answers[c.id] ?? (c.type === 'mc' ? [] : ''));
-    if (r) exam.scores[c.id] = r.ok ? pointsOf(c) : 0;
+    if (r) exam.scores[c.id] = r.ok ? pointsOf(c) : r.part ? Math.floor(pointsOf(c) * r.part * 2) / 2 : 0;
   });
   const pending = items.filter(c => exam.scores[c.id] == null).length;
   const max = items.reduce((s, c) => s + pointsOf(c), 0);
@@ -703,12 +752,12 @@ function renderGrading(main) {
   </section>
   ${items.map((c, k) => {
     const a = exam.answers[c.id]; const p = pointsOf(c);
-    const given = c.type === 'mc' ? (a || []).map(i => c.options[i] && c.options[i].text).join(' · ') : (a || '');
+    const given = c.type === 'mc' ? (a || []).map(i => c.options[i] && c.options[i].text).join(' · ') : c.type === 'order' ? (a || []).map(i => c.items[i]).join(' → ') : (a || '');
     const sc = exam.scores[c.id];
     return `<section class="panel"><div class="row spread"><h3>Aufgabe ${k + 1}</h3><span class="chip ${sc == null ? 'warn' : sc >= p ? 'good' : sc > 0 ? 'warn' : 'bad'}">${sc == null ? 'offen' : fmtNum(sc, 1) + ' / ' + p}</span></div>
       ${renderContent(c.front, c.images)}
       <div><span class="eyebrow">Deine Antwort</span><div class="content">${given ? md(String(given)) : '<span class="muted">keine</span>'}</div></div>
-      <div><span class="eyebrow">Lösung</span>${c.type === 'mc' ? '<div class="content">' + c.options.filter(o => o.correct).map(o => md(o.text)).join('<br>') + '</div>' : ''}${c.type === 'calc' ? `<div class="content"><b>${fmtRes(c.answer)} ${esc(c.unit)}</b></div>` : ''}${renderContent(c.back, c.backImages)}</div>
+      <div><span class="eyebrow">Lösung</span>${c.type === 'mc' ? '<div class="content">' + c.options.filter(o => o.correct).map(o => md(o.text)).join('<br>') + '</div>' : ''}${c.type === 'calc' ? `<div class="content"><b>${fmtRes(c.answer)} ${esc(c.unit)}</b></div>` : ''}${c.type === 'order' ? orderSolution(c) : ''}${renderContent(c.back, c.backImages)}</div>
       ${c.type === 'basic' || c.type === 'open' ? `<div class="row"><span class="small muted">Punkte:</span>${[0, .25, .5, .75, 1].map(f => { const v = Math.round(p * f * 2) / 2; return `<button class="btn small ${sc === v ? 'primary' : ''}" data-score="${c.id}" data-v="${v}">${fmtNum(v, 1)}</button>`; }).filter((v, i, arr) => arr.indexOf(v) === i).join('')}</div>` : ''}
     </section>`;
   }).join('')}`;
@@ -824,6 +873,7 @@ function parseCSV(text) {
   return rows.filter(r => r.some(x => x.trim())).map(r => {
     const o = {}; head.forEach((h, k) => o[alias[h] || h] = (r[k] || '').trim());
     if (o.options) o.options = o.options.split('|').map(s => s.trim()).filter(Boolean);
+    if (o.type === 'order' && o.options && !o.items) { o.items = o.options; delete o.options; }
     return o;
   });
 }
