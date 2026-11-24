@@ -129,7 +129,7 @@ function md(src, images = []) {
       const cells = r => r.trim().replace(/^\||\|$/g, '').split('|').map(c => c.trim());
       const body = rows.filter(r => !/^\s*\|[\s\-:|]+\|\s*$/.test(r));
       const hasHead = rows.length > 1 && /^\s*\|[\s\-:|]+\|\s*$/.test(rows[1]);
-      let t = '<div class="tablewrap"><table>';
+      let t = '<div class="tablewrap" lang="de"><table>';
       body.forEach((r, k) => { const tag = hasHead && k === 0 ? 'th' : 'td'; t += '<tr>' + cells(r).map(c => `<${tag}>${inline(c)}</${tag}>`).join('') + '</tr>'; });
       out.push(t + '</table></div>'); continue;
     }
@@ -283,22 +283,26 @@ function viewHome(main) {
   $('#go-study').onclick = () => { startSession([...S.cards.values()], false); if (session) go('lernen'); };
   $('#go-exam').onclick = () => go('pruefung');
   main.querySelectorAll('[data-round]').forEach(b => b.onclick = () => {
-    startSession(roundCards(b.dataset.round), true); if (session) go('lernen');
+    // Nur Fragen, die zuletzt nicht mit Gut/Leicht bewertet wurden; ist alles geschafft, die ganze Runde
+    const cs = roundCards(b.dataset.round), last = lastLogs();
+    const open = cs.filter(c => !(last.has(c.id) && last.get(c.id).g >= 3));
+    startSession(open.length ? open : cs, true); if (session) go('lernen');
   });
   $('#go-data').onclick = () => go('daten');
 }
 // Übungsrunden: Karten mit einem Tag „Übungsrunde …“ lassen sich mit einem Klick als freies Üben starten
+const lastLogs = () => { const last = new Map(); for (const l of S.logs) if (!last.has(l.card) || l.ts > last.get(l.card).ts) last.set(l.card, l); return last; };
 const roundCards = name => [...S.cards.values()].filter(c => c.tags.includes(name));
 function roundsPanel() {
   const names = [...new Set([...S.cards.values()].flatMap(c => c.tags.filter(t => t.startsWith('Übungsrunde '))))].sort((a, b) => a.localeCompare(b, 'de'));
   if (!names.length) return '';
   const btns = names.map(n => {
     const cs = roundCards(n);
-    const last = new Map(); for (const l of S.logs) if (!last.has(l.card) || l.ts > last.get(l.card).ts) last.set(l.card, l);
+    const last = lastLogs();
     const ok = cs.filter(c => last.has(c.id) && last.get(c.id).g >= 3).length;
     return `<button class="btn" data-round="${esc(n)}">${esc(n.replace('Übungsrunde ', ''))} <span class="small muted num">${ok}/${cs.length}</span></button>`;
   }).join('');
-  return `<section class="panel"><h2>Übungsrunden</h2><p class="small muted">Kurze Runden zu prüfungstypischen Themen, ohne Lernplanung. Die Zahl zeigt, wie viele Fragen du zuletzt mit „Gut“ oder „Leicht“ bewertet hast.</p><div class="row">${btns}</div></section>`;
+  return `<section class="panel"><h2>Übungsrunden</h2><p class="small muted">Kurze Runden zu prüfungstypischen Themen, ohne Lernplanung. Die Zahl zeigt, wie viele Fragen du zuletzt mit „Gut“ oder „Leicht“ bewertet hast. Eine angefangene Runde startet nur mit den offenen Fragen, eine geschaffte Runde wieder komplett.</p><div class="row">${btns}</div></section>`;
 }
 function lfBars() {
   const all = [...S.cards.values()];

@@ -212,3 +212,4 @@ kbd { font-family: var(--font-mono); font-size: .75rem; border: 1px solid var(--
 .order-item { width: 100%; text-align: left; font: inherit; color: inherit; }
 .order-pool .order-item { border-style: dashed; }
 .order-solution { margin: 6px 0 0; padding-left: 1.6em; }
+.content td, .content th { overflow-wrap: normal; word-break: normal; hyphens: auto; -webkit-hyphens: auto; }
