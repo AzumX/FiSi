@@ -449,7 +449,7 @@ function renderStudy(main) {
     <button class="btn primary" id="st-show" style="width:100%">${c.type === 'mc' || c.type === 'calc' || c.type === 'order' || c.type === 'table' ? 'Prüfen' : 'Antwort zeigen'}</button>
   </div>
   <div class="small muted">Karte bearbeiten: <a href="#karten" id="st-edit">${esc(c.id)}</a></div>`;
-  bindOrder(c, 'st');
+  bindOrder(c, 'st'); bindCalc('st');
   $('#st-end').onclick = () => { session = null; go('home'); };
   $('#st-edit').onclick = e => { e.preventDefault(); editCardId = c.id; go('karten'); };
   const reveal = () => {
@@ -540,9 +540,49 @@ function answerInput(c, p, saved) {
     const t = parseTable(c.table), bl = new Set(tableBlanks(c)), sv = saved || {};
     return `<div class="stack"><span class="small muted">Fülle die leeren Felder aus. Stichworte reichen, Groß-/Kleinschreibung ist egal.</span><div class="tablewrap" lang="de"><table class="filltable content" id="${p}-table">${t.head ? '<tr>' + t.head.map(h => `<th>${md(h)}</th>`).join('') + '</tr>' : ''}${t.rows.map((row, r) => '<tr>' + row.map((x, k) => { const key = `${r + 1},${k + 1}`; return bl.has(key) ? `<td class="blank" data-cell="${key}"><input type="text" autocomplete="off" aria-label="${esc(((t.head && t.head[k]) || 'Spalte ' + (k + 1)) + ', ' + foldTxt(row[0]).slice(0, 40))}" value="${esc(sv[key] || '')}"></td>` : `<td>${md(x)}</td>`; }).join('') + '</tr>').join('')}</table></div></div>`;
   }
-  if (c.type === 'calc') return `<label class="field">Dein Ergebnis${c.unit ? ' in ' + esc(c.unit) : ''}<input type="text" inputmode="decimal" id="${p}-calc" value="${esc(saved ?? '')}" autocomplete="off"></label>`;
+  if (c.type === 'calc') return `<div class="stack calcbox"><label class="field">Dein Ergebnis${c.unit ? ' in ' + esc(c.unit) : ''} <span class="small muted">(du kannst auch direkt rechnen, z. B. 3*450+120)</span><input type="text" inputmode="decimal" id="${p}-calc" value="${esc(saved ?? '')}" autocomplete="off" spellcheck="false"></label>
+    <div class="calc-keys" id="${p}-calckeys" aria-label="Rechenzeichen">${[['+', '+'], ['−', '-'], ['×', '*'], ['÷', '/'], ['(', '('], [')', ')'], ['xʸ', '^'], ['⌫', 'del']].map(([l, v]) => `<button type="button" class="btn small calc-key" data-k="${v}">${l}</button>`).join('')}</div>
+    <div class="calc-prev num" id="${p}-calcprev" aria-live="polite"></div></div>`;
   if (c.type === 'open' && p === 'ex') return `<label class="field">Deine Antwort (Stichpunkte reichen)<textarea id="${p}-open">${esc(saved ?? '')}</textarea></label>`;
   return '';
+}
+// Mini-Rechner im Ergebnisfeld: + - * / ( ) ^, Komma oder Punkt als Dezimalzeichen
+function calcExpr(src) {
+  let t = String(src || '').replace(/\s/g, '').replace(/[×xX]/g, '*').replace(/[÷:]/g, '/').replace(/[−–]/g, '-');
+  if (!t) return NaN;
+  if (t.includes(',')) t = t.replace(/\.(?=\d)/g, '').replace(/,/g, '.');   // 1.234,5 → 1234.5
+  else t = t.replace(/(\d)\.(?=\d{3}(\D|$))/g, '$1');                     // 1.200 → 1200 (Tausenderpunkt)
+  let i = 0;
+  const peek = () => t[i];
+  const num = () => { const m = /^\d*\.?\d+(e[+-]?\d+)?|^\d+\.?/.exec(t.slice(i)); if (!m) throw 0; i += m[0].length; return parseFloat(m[0]); };
+  const atom = () => {
+    if (peek() === '-') { i++; return -atom(); }
+    if (peek() === '+') { i++; return atom(); }
+    if (peek() === '(') { i++; const v = sum(); if (peek() === ')') i++; return v; }
+    return num();
+  };
+  const pow = () => { const b = atom(); if (peek() === '^') { i++; return Math.pow(b, pow()); } return b; };
+  const prod = () => { let v = pow(); while (peek() === '*' || peek() === '/') { const op = t[i++]; const r = pow(); v = op === '*' ? v * r : v / r; } return v; };
+  const sum = () => { let v = prod(); while (peek() === '+' || peek() === '-') { const op = t[i++]; const r = prod(); v = op === '+' ? v + r : v - r; } return v; };
+  try { const v = sum(); return i === t.length && Number.isFinite(v) ? v : NaN; } catch (e) { return NaN; }
+}
+const isExpr = s => /\d\s*[-+*/×÷:^x−]\s*[\d(]|[()]|\^/.test(String(s || '').replace(/^\s*[-−]/, ''));
+function bindCalc(p) {
+  const inp = $('#' + p + '-calc'), keys = $('#' + p + '-calckeys'), prev = $('#' + p + '-calcprev'); if (!inp || !keys || keys.dataset.bound) return;
+  keys.dataset.bound = '1';
+  const show = () => { const v = inp.value; const r = calcExpr(v); prev.textContent = isExpr(v) ? (Number.isFinite(r) ? '= ' + fmtRes(Math.round(r * 1e6) / 1e6) : '…') : ''; };
+  inp.addEventListener('input', show);
+  // pointerdown statt click: Fokus bleibt im Feld, die Handy-Tastatur geht nicht zu
+  keys.addEventListener('pointerdown', e => {
+    const b = e.target.closest('.calc-key'); if (!b || inp.disabled) return;
+    e.preventDefault();
+    const a = inp.selectionStart ?? inp.value.length, z = inp.selectionEnd ?? a, k = b.dataset.k;
+    if (k === 'del') { const from = a === z ? Math.max(0, a - 1) : a; inp.value = inp.value.slice(0, from) + inp.value.slice(z); inp.setSelectionRange(from, from); }
+    else { inp.value = inp.value.slice(0, a) + k + inp.value.slice(z); inp.setSelectionRange(a + k.length, a + k.length); }
+    inp.focus({ preventScroll: true }); show();
+  });
+  keys.addEventListener('click', e => e.preventDefault());
+  show();
 }
 function bindOrder(c, p) {
   const box = $('#' + p + '-order'); if (!box || box.dataset.bound) return;
@@ -609,8 +649,9 @@ function evalAnswer(c, ans) {
     return { ok: hits === bl.length, auto: true, part: bl.length ? hits / bl.length : 0, hits, total: bl.length, cells };
   }
   if (c.type === 'calc') {
-    const v = parseFloat(String(ans).replace(/\s/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+    const v = calcExpr(ans);
     if (!Number.isFinite(v)) return { ok: false, auto: true, given: ans };
+    if (isExpr(ans)) { const tol = Math.abs(c.answer) * (c.tolerance ?? 0.01); return { ok: Math.abs(v - c.answer) <= Math.max(tol, 1e-9), auto: true, given: v, expr: String(ans).trim() }; }
     const tol = Math.abs(c.answer) * (c.tolerance ?? 0.01);
     return { ok: Math.abs(v - c.answer) <= Math.max(tol, 1e-9), auto: true, given: v };
   }
@@ -621,7 +662,7 @@ function resultHtml(c, r) {
   if (!r) return '';
   if (c.type === 'order') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : `Nicht ganz: ${r.hits} von ${c.items.length} an der richtigen Stelle`}</div>${r.ok ? '' : '<span class="eyebrow">Richtige Reihenfolge</span>' + orderSolution(c)}<br>`;
   if (c.type === 'table') return `<div class="verdict ${r.ok ? 'ok' : 'no'}" id="tb-verdict">${tableVerdict(r)}</div><p class="small muted">Die App vergleicht nach Stichworten. Tippe auf ein Feld, wenn die Bewertung nicht passt.</p>`;
-  if (c.type === 'calc') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Falsch'}: Lösung ${fmtRes(c.answer)} ${esc(c.unit)}</div><br>`;
+  if (c.type === 'calc') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Falsch'}: Lösung ${fmtRes(c.answer)} ${esc(c.unit)}</div>${r.expr ? `<p class="small muted">Deine Rechnung: <span class="num">${esc(r.expr)} = ${fmtRes(Math.round(r.given * 1e6) / 1e6)}</span></p>` : ''}<br>`;
   return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Nicht ganz'}</div><br>`;
 }
 const tableVerdict = r => r.hits === r.total ? `Richtig: alle ${r.total} Felder` : `${r.hits} von ${r.total} Feldern richtig`;
@@ -801,7 +842,7 @@ function renderExamQ(main) {
   </article>
   <div class="row spread"><button class="btn" id="ex-prev" ${exam.idx ? '' : 'disabled'}>Zurück</button><button class="btn primary" id="ex-next">${exam.idx < exam.ids.length - 1 ? 'Weiter' : 'Zur Abgabe'}</button></div>
   <div id="ex-confirm"></div>`;
-  bindOrder(c, 'ex');
+  bindOrder(c, 'ex'); bindCalc('ex');
   const goto = k => { save(); exam.idx = k; renderExamQ(main); };
   main.querySelectorAll('.qdot').forEach(b => b.onclick = () => goto(+b.dataset.k));
   $('#ex-prev').onclick = () => goto(exam.idx - 1);

@@ -223,3 +223,7 @@ kbd { font-family: var(--font-mono); font-size: .75rem; border: 1px solid var(--
 .filltable td.blank .sol::before { content: 'Lösung: '; font-weight: 600; }
 
 code { overflow-wrap: anywhere; }
+
+.calc-keys { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 6px; }
+.calc-key { min-height: 38px; padding: 0; font-family: var(--font-mono); font-size: 1rem; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+.calc-prev { min-height: 1.3em; font-weight: 600; color: var(--muted); }
