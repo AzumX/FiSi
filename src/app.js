@@ -267,13 +267,30 @@ function viewHome(main) {
       <div class="legend"><span><i style="background:var(--good)"></i>sitzt (≥ 21 Tage)</span><span><i style="background:var(--warn)"></i>in Arbeit</span><span><i style="background:var(--surface-2)"></i>neu</span></div></div>
     <div class="lfbars">${lfBars()}</div>
   </section>
+  ${roundsPanel()}
   <section class="grid2">
     <div class="panel"><h3>Prüfung simulieren</h3><p class="small muted">90 Minuten, gemischte Aufgaben, Auswertung mit IHK-Notenschlüssel.</p><button class="btn" id="go-exam">Simulation starten</button></div>
     <div class="panel"><h3>Zwischen PC und Handy abgleichen</h3><p class="small muted">Fortschritt exportieren und auf dem anderen Gerät importieren. Beide Stände werden zusammengeführt.</p><button class="btn" id="go-data">Abgleichen</button></div>
   </section>`;
   $('#go-study').onclick = () => { startSession([...S.cards.values()], false); if (session) go('lernen'); };
   $('#go-exam').onclick = () => go('pruefung');
+  main.querySelectorAll('[data-round]').forEach(b => b.onclick = () => {
+    startSession(roundCards(b.dataset.round), true); if (session) go('lernen');
+  });
   $('#go-data').onclick = () => go('daten');
+}
+// Übungsrunden: Karten mit einem Tag „Übungsrunde …“ lassen sich mit einem Klick als freies Üben starten
+const roundCards = name => [...S.cards.values()].filter(c => c.tags.includes(name));
+function roundsPanel() {
+  const names = [...new Set([...S.cards.values()].flatMap(c => c.tags.filter(t => t.startsWith('Übungsrunde '))))].sort((a, b) => a.localeCompare(b, 'de'));
+  if (!names.length) return '';
+  const btns = names.map(n => {
+    const cs = roundCards(n);
+    const last = new Map(); for (const l of S.logs) if (!last.has(l.card) || l.ts > last.get(l.card).ts) last.set(l.card, l);
+    const ok = cs.filter(c => last.has(c.id) && last.get(c.id).g >= 3).length;
+    return `<button class="btn" data-round="${esc(n)}">${esc(n.replace('Übungsrunde ', ''))} <span class="small muted num">${ok}/${cs.length}</span></button>`;
+  }).join('');
+  return `<section class="panel"><h2>Übungsrunden</h2><p class="small muted">Kurze Runden zu prüfungstypischen Themen, ohne Lernplanung. Die Zahl zeigt, wie viele Fragen du zuletzt mit „Gut“ oder „Leicht“ bewertet hast.</p><div class="row">${btns}</div></section>`;
 }
 function lfBars() {
   const all = [...S.cards.values()];
