@@ -113,6 +113,7 @@ function md(src, images = []) {
   const inline = s => esc(s)
     .replace(/`([^`]+)`/g, '<code>$1</code>')
     .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])_(\S.*?\S)_(?=[\s.,;:!?)]|$)/g, '$1<em>$2</em>')
     .replace(/!\[([^\]]*)\]\(bild:(\d+)\)/g, (m, alt, n) => images[+n - 1] ? `<img src="${esc(images[+n - 1])}" alt="${alt}">` : m);
   while (i < lines.length) {
     const l = lines[i];
