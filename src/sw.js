@@ -5,6 +5,14 @@ self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c =>
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())); });
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
+  // Die App-Seite selbst: erst Netz (damit Updates sofort ankommen), offline aus dem Cache
+  if (e.request.mode === 'navigate' || /\/(index\.html)?$/.test(new URL(e.request.url).pathname)) {
+    e.respondWith(fetch(e.request, { cache: 'no-store' }).then(res => {
+      if (res.ok) { const copy = res.clone(); caches.open(CACHE).then(c => c.put('./index.html', copy)); }
+      return res;
+    }).catch(() => caches.match('./index.html')));
+    return;
+  }
   e.respondWith(caches.match(e.request, { ignoreSearch: true }).then(hit => hit || fetch(e.request).then(res => {
     if (res.ok && (new URL(e.request.url).origin === location.origin || e.request.url.startsWith('https://fonts.'))) { const copy = res.clone(); caches.open(CACHE).then(c => c.put(e.request, copy)); }
     return res;

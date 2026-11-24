@@ -11,7 +11,7 @@ inner() {
   echo "$FONTS"
   echo "<style>"; cat src/app.css; echo "</style>"
   cat src/body.html
-  echo "<script>"; cat src/fsrs.js src/samples.js src/app.js; echo "</script>"
+  echo "<script>"; cat src/fsrs.js src/samples.js src/app.js | sed "s/__VERSION__/$V/g"; echo "</script>"
 }
 inner > dist/artifact.html
 {

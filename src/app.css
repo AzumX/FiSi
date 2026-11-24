@@ -221,3 +221,5 @@ kbd { font-family: var(--font-mono); font-size: .75rem; border: 1px solid var(--
 .filltable td.blank .given { font-weight: 600; }
 .filltable td.blank .sol { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 4px; color: var(--muted); font-size: .85rem; }
 .filltable td.blank .sol::before { content: 'Lösung: '; font-weight: 600; }
+
+code { overflow-wrap: anywhere; }

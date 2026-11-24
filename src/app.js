@@ -10,6 +10,8 @@ const LF = {
   6: 'Serviceanfragen bearbeiten',
   0: 'Ohne Lernfeld'
 };
+const APP_VERSION = '__VERSION__';
+const versionText = () => /^\d{12}$/.test(APP_VERSION) ? `${APP_VERSION.slice(6, 8)}.${APP_VERSION.slice(4, 6)}.${APP_VERSION.slice(0, 4)}, ${APP_VERSION.slice(8, 10)}:${APP_VERSION.slice(10)} UTC` : APP_VERSION;
 const TYPES = { basic: 'Karteikarte', mc: 'Multiple Choice', calc: 'Rechenaufgabe', open: 'Offene Aufgabe', order: 'Reihenfolge', table: 'Lückentabelle' };
 const RATINGS = ['Nochmal', 'Schwer', 'Gut', 'Leicht'];
 const SCHEMA = 'ap1-trainer/1';
@@ -203,6 +205,16 @@ function levelChip(c) { return c.level ? `<span class="chip" title="Schwierigkei
 function lfChip(lf) { return `<span class="chip lf" title="${esc(LF[lf] || '')}">${lf ? 'LF ' + lf : 'ohne LF'}</span>`; }
 function readFile(file, asDataURL) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); asDataURL ? r.readAsDataURL(file) : r.readAsText(file); });
+}
+// Text einer Datei lesen, mit Ausweichweg: manche Handy-Browser liefern über FileReader einen leeren Text
+async function readText(file) {
+  let t = '';
+  try { t = await readFile(file); } catch (e) { /* zweiter Versuch unten */ }
+  if (!t && file.size > 0) {
+    try { t = new TextDecoder('utf-8').decode(await file.arrayBuffer()); } catch (e) { /* bleibt leer */ }
+  }
+  if (!t) throw new Error(`„${file.name || 'Datei'}“ kam leer an (Größe laut Gerät: ${Math.round((file.size || 0) / 1024)} KB). Bitte die Datei in den Downloads prüfen oder neu herunterladen.`);
+  return t;
 }
 async function shrinkImage(file, max = 1400) {
   const url = await readFile(file, true);
@@ -1034,6 +1046,8 @@ function viewData(main) {
     </div>
     <p class="small muted">Empfohlen: ${recommendedNewPerDay()} neue Karten pro Tag, damit alle Karten 4 Wochen vor der Prüfung einmal gelernt sind. Wiederholungsabstände werden nie über den Prüfungstermin hinaus geplant.</p>
     <div class="row"><button class="btn" id="dt-save">Einstellungen speichern</button></div>
+    <p class="small muted">App-Version: <span class="num" id="dt-version">${versionText()}</span></p>
+    <div class="row"><button class="btn small" id="dt-refresh">App neu laden (Update holen)</button></div>
   </section>
   <section class="panel">
     <h2>Aufräumen</h2>
@@ -1057,10 +1071,22 @@ function viewData(main) {
     catch (e) { const ta = $('#dt-paste'); ta.closest('details').open = true; ta.value = json(); ta.select(); toast('Text markiert, bitte manuell kopieren'); }
   };
   const doImport = async (fn) => { try { toast(await fn()); } catch (e) { toast('Import fehlgeschlagen: ' + e.message); } };
-  $('#dt-import').onchange = e => doImport(async () => { const f = e.target.files[0]; const r = await mergeData(JSON.parse(unwrapImportText(await readFile(f), f.name))); e.target.value = ''; return r; });
+  $('#dt-import').onchange = e => doImport(async () => { const f = e.target.files[0]; e.target.value = ''; if (!f) throw new Error('Keine Datei gewählt.'); return mergeData(JSON.parse(unwrapImportText(await readText(f), f.name))); });
   $('#dt-paste-go').onclick = () => doImport(async () => mergeData(JSON.parse($('#dt-paste').value)));
-  $('#dt-cards').onchange = e => doImport(async () => { const out = []; for (const f of e.target.files) out.push(await importCardsText(await readFile(f), f.name)); e.target.value = ''; return out.join(' · '); });
+  $('#dt-cards').onchange = e => doImport(async () => {
+    const files = [...e.target.files]; e.target.value = '';
+    if (!files.length) throw new Error('Das Handy hat keine Datei übergeben. Bitte noch einmal wählen.');
+    const out = []; for (const f of files) out.push(await importCardsText(await readText(f), f.name)); return out.join(' · ');
+  });
   $('#dt-cardtext-go').onclick = () => doImport(async () => importCardsText($('#dt-cardtext').value));
+  $('#dt-refresh').onclick = async () => {
+    // Offline-Cache leeren und Seite frisch laden. Karten und Lernstand liegen in der Datenbank und bleiben erhalten.
+    try {
+      if ('caches' in window) for (const k of await caches.keys()) await caches.delete(k);
+      if ('serviceWorker' in navigator) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+    } catch (e) { /* egal, wir laden trotzdem neu */ }
+    location.reload();
+  };
   $('#dt-save').onclick = async () => {
     S.settings.examDate = $('#dt-date').value || S.settings.examDate;
     S.settings.newPerDay = Math.max(0, +$('#dt-new').value || 0);
@@ -1089,6 +1115,10 @@ function viewData(main) {
   document.querySelectorAll('.tab').forEach(t => t.onclick = () => go(t.dataset.view));
   route();
   if ('serviceWorker' in navigator && location.protocol !== 'file:' && document.querySelector('link[rel=manifest]')) {
-    navigator.serviceWorker.register('sw.js').catch(() => { /* kein Offline-Cache in dieser Umgebung */ });
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.register('sw.js').then(reg => reg.update()).catch(() => { /* kein Offline-Cache in dieser Umgebung */ });
+    // Neue Version wurde aktiv: einmal neu laden, damit sie sofort gilt
+    let reloaded = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
   }
 })();
