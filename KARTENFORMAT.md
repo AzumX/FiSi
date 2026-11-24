@@ -17,6 +17,7 @@ Gleiche `id` überschreibt die Karte, der Lernstand bleibt erhalten.
 | `options` | bei `mc` | `[{"text": "...", "correct": true}, ...]` oder in CSV `*richtig|falsch|falsch` |
 | `answer`, `unit`, `tolerance` | bei `calc` | Ergebnis als Zahl, Einheit, relative Toleranz (0.01 = 1 %) |
 | `points` | nein | Punkte in der Prüfungssimulation (Standard: 2, bei `calc`/`open` 4) |
+| `level` | nein | Schwierigkeit 1–3 (die Punkte ●○○ auf den u-form-Karten) |
 | `images`, `backImages` | nein | Bilder als Data-URL; im Text an bestimmter Stelle mit `![](bild:1)` |
 | `tags`, `source` | nein | Schlagwörter, Herkunft (z. B. `u-form Nr. 42`) |
 

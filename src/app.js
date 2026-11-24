@@ -74,6 +74,7 @@ function normCard(c) {
     images: Array.isArray(c.images) ? c.images : [],
     backImages: Array.isArray(c.backImages) ? c.backImages : [],
     points: c.points != null && c.points !== '' ? +c.points : null,
+    level: [1, 2, 3].includes(+c.level) ? +c.level : null,
     source: c.source || '',
     created: c.created || now,
     updated: c.updated || now
@@ -152,6 +153,7 @@ function toast(msg) {
   let t = $('.toast'); if (!t) { t = document.createElement('div'); t.className = 'toast'; t.setAttribute('role', 'status'); document.body.append(t); }
   t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2600);
 }
+function levelChip(c) { return c.level ? `<span class="chip" title="Schwierigkeit ${c.level} von 3">${'●'.repeat(c.level)}${'○'.repeat(3 - c.level)}</span>` : ''; }
 function lfChip(lf) { return `<span class="chip lf" title="${esc(LF[lf] || '')}">${lf ? 'LF ' + lf : 'ohne LF'}</span>`; }
 function readFile(file, asDataURL) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(r.error); asDataURL ? r.readAsDataURL(file) : r.readAsText(file); });
@@ -331,7 +333,7 @@ function renderStudy(main) {
   <div class="row spread"><span class="small muted num">${session.cram ? 'Freies Üben · ' : ''}${session.done} erledigt · ${session.queue.length} offen</span><button class="btn ghost small" id="st-end">Beenden</button></div>
   <div class="progress"><i style="width:${pct}%"></i></div>
   <article class="studycard">
-    <div class="row">${lfChip(c.lf)}<span class="chip">${TYPES[c.type]}</span>${c.topic ? `<span class="chip">${esc(c.topic)}</span>` : ''}${!st || st.state === 'new' ? '<span class="chip warn">neu</span>' : ''}<span class="small muted" style="margin-left:auto">${esc(c.source)}</span></div>
+    <div class="row">${lfChip(c.lf)}<span class="chip">${TYPES[c.type]}</span>${c.topic ? `<span class="chip">${esc(c.topic)}</span>` : ''}${levelChip(c)}${!st || st.state === 'new' ? '<span class="chip warn">neu</span>' : ''}<span class="small muted" style="margin-left:auto">${esc(c.source)}</span></div>
     <div class="q">${renderContent(c.front, c.images)}</div>
     <div id="st-input">${answerInput(c, 'st')}</div>
     <div id="st-answer" class="a" hidden></div>
@@ -457,7 +459,7 @@ function viewCards(main) {
     const html = list.slice(0, listLimit).map(c => {
       const s = cardStatus(c.id);
       return `<div class="cl-item" data-id="${esc(c.id)}" tabindex="0"><span class="cl-front">${esc(c.front.replace(/\n/g, ' '))}</span><span class="small muted mono">${esc(c.id)}</span>
-      <div class="cl-meta">${lfChip(c.lf)}<span class="chip">${TYPES[c.type]}</span><span class="chip">${esc(c.deck)}</span>${s === 'mastered' ? '<span class="chip good">sitzt</span>' : s === 'learning' ? '<span class="chip warn">in Arbeit</span>' : ''}${c.images.length ? '<span class="chip">Bild</span>' : ''}</div></div>`;
+      <div class="cl-meta">${lfChip(c.lf)}${levelChip(c)}<span class="chip">${TYPES[c.type]}</span><span class="chip">${esc(c.deck)}</span>${s === 'mastered' ? '<span class="chip good">sitzt</span>' : s === 'learning' ? '<span class="chip warn">in Arbeit</span>' : ''}${c.images.length ? '<span class="chip">Bild</span>' : ''}</div></div>`;
     }).join('');
     $('#cl').innerHTML = html || '<div class="empty">Keine Karten gefunden.</div>';
     $('#cl-count').textContent = list.length + ' Karten';
@@ -491,6 +493,7 @@ function viewEditor(main, card) {
       <label class="field">Lernfeld<select id="ed-lf">${[1, 2, 3, 4, 5, 6, 0].map(v => `<option value="${v}" ${c.lf === v ? 'selected' : ''}>${v ? 'LF ' + v : 'Ohne'}</option>`).join('')}</select></label>
       <label class="field">Typ<select id="ed-type">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${c.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="field">Thema<input type="text" id="ed-topic" value="${esc(c.topic)}"></label>
+      <label class="field">Schwierigkeit<select id="ed-level">${[['', '–'], [1, '●○○ leicht'], [2, '●●○ mittel'], [3, '●●● schwer']].map(([v, t]) => `<option value="${v}" ${String(c.level ?? '') === String(v) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
       <label class="field">Punkte (Prüfung)<input type="number" id="ed-points" min="0" step="1" value="${c.points ?? ''}" placeholder="${pointsOf(c)}"></label>
     </div>
     <label class="field">Frage / Vorderseite<textarea id="ed-front">${esc(c.front)}</textarea></label>
@@ -531,7 +534,7 @@ function viewEditor(main, card) {
     if (!$('#ed-front').value.trim()) return toast('Die Frage ist leer.');
     const raw = {
       ...c, id, deck: $('#ed-deck').value.trim() || 'eigene', lf: +$('#ed-lf').value, type: $('#ed-type').value, topic: $('#ed-topic').value.trim(),
-      points: $('#ed-points').value, front: $('#ed-front').value, back: $('#ed-back-text').value, tags: $('#ed-tags').value, source: $('#ed-source').value.trim(),
+      points: $('#ed-points').value, level: $('#ed-level').value, front: $('#ed-front').value, back: $('#ed-back-text').value, tags: $('#ed-tags').value, source: $('#ed-source').value.trim(),
       options: $('#ed-options').value.split('\n').map(s => s.trim()).filter(Boolean), answer: $('#ed-answer').value, unit: $('#ed-unit').value, tolerance: $('#ed-tol').value, updated: Date.now()
     };
     if (raw.type === 'mc' && (raw.options.length < 2 || !raw.options.some(o => o.startsWith('*')))) return toast('Multiple Choice braucht mind. 2 Optionen und eine mit *.');
@@ -771,7 +774,7 @@ function parseCSV(text) {
   }
   if (cell || row.length) { row.push(cell); rows.push(row); }
   const head = rows.shift().map(h => h.trim().toLowerCase());
-  const alias = { frage: 'front', vorderseite: 'front', antwort: 'back', rückseite: 'back', lernfeld: 'lf', thema: 'topic', typ: 'type', stapel: 'deck', optionen: 'options', ergebnis: 'answer', einheit: 'unit', punkte: 'points', quelle: 'source', toleranz: 'tolerance' };
+  const alias = { frage: 'front', vorderseite: 'front', antwort: 'back', rückseite: 'back', lernfeld: 'lf', thema: 'topic', typ: 'type', stapel: 'deck', optionen: 'options', ergebnis: 'answer', einheit: 'unit', punkte: 'points', quelle: 'source', toleranz: 'tolerance', schwierigkeit: 'level' };
   return rows.filter(r => r.some(x => x.trim())).map(r => {
     const o = {}; head.forEach((h, k) => o[alias[h] || h] = (r[k] || '').trim());
     if (o.options) o.options = o.options.split('|').map(s => s.trim()).filter(Boolean);

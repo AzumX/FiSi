@@ -12,6 +12,20 @@ Ziel: pro Karte ein Bild der Vorderseite und eins der Rückseite, in der richtig
 
 Schneller geht es mit einem Dokumentenscanner mit Duplex-Einzug, falls du Zugang zu einem hast (Arbeit, Schule, Copyshop): dann reicht ein Durchlauf pro Stapel, Vorder- und Rückseite automatisch.
 
+## Einstellungen am Multifunktionsgerät (z. B. HP PageWide Enterprise Color MFP 586)
+
+Wichtig sind vor allem **Farbmodus** und **Auflösung**. Mit Schwarzweiß und 150 dpi werden Grafiken zu Punktrastern.
+
+- **Farbe/Schwarzweiß:** Graustufen (oder Farbe), nicht Schwarzweiß
+- **Auflösung:** 300 dpi, für Karten mit kleinen Diagrammen 400–600 dpi
+- **Inhalt optimieren für:** „Gemischt“ oder „Foto“, nicht „Text“
+- **Ausgabequalität / Dateigröße:** Hoch (geringe Komprimierung)
+- **Beidseitig:** 2-seitiges Original, Bindung „Lange Kante“ bzw. passend zur Kartenausrichtung
+- **Originalformat:** wenn möglich „Gemischte Formate“ oder ein eigenes Format in Kartengröße. Bei A4 liegt die Karte nur klein in der Ecke.
+- **Ausrichtung:** egal, die Drehung korrigiere ich beim Auslesen
+
+Bei 20 Karten sind 2–5 MB für das PDF normal. Ist die Datei deutlich kleiner, war meist noch Schwarzweiß eingestellt.
+
 ## Hochladen
 
 Die PDFs hier im Projekt-Chat hochladen. Ich lese die Karten aus, ordne Lernfeld, Thema und Kartentyp zu und liefere eine Importdatei (`u-form.json`). Bilder und Grafiken auf den Karten übernehme ich als Bild. Bei unleserlichen Stellen schreibe ich dir eine Liste zum Nachprüfen.
