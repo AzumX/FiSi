@@ -547,11 +547,26 @@ function answerInput(c, p, saved) {
   return '';
 }
 // Mini-Rechner im Ergebnisfeld: + - * / ( ) ^, Komma oder Punkt als Dezimalzeichen
-function calcExpr(src) {
+function calcNum(tok) {
+  // Jede Zahl einzeln deuten, damit „1.25*0,98“ gemischt funktioniert
+  if (tok.includes(',') && tok.includes('.')) return { v: tok.lastIndexOf(',') > tok.lastIndexOf('.') ? tok.replace(/\./g, '').replace(',', '.') : tok.replace(/,/g, ''), k: false };
+  if (tok.includes(',')) return { v: tok.replace(',', '.'), k: false };
+  if (/^\d{1,3}(\.\d{3})+$/.test(tok)) return { v: tok.replace(/\./g, ''), k: true };   // 1.200 = Tausenderpunkt
+  return { v: tok, k: false };
+}
+function calcPrep(src) {
   let t = String(src || '').replace(/\s/g, '').replace(/[×xX]/g, '*').replace(/[÷:]/g, '/').replace(/[−–]/g, '-');
+  const thousands = [];
+  t = t.replace(/\d[\d.,]*/g, tok => { const n = calcNum(tok.replace(/[.,]$/, '')); if (n.k) thousands.push(tok); return n.v; });
+  return { t, thousands };
+}
+// So liest die App die Rechnung, in deutscher Schreibweise zur Kontrolle
+function calcShow(src) {
+  return calcPrep(src).t.replace(/\d+(\.\d+)?/g, m => fmtRes(+m)).replace(/\*/g, ' × ').replace(/\//g, ' ÷ ').replace(/\+/g, ' + ').replace(/(\d|\))-/g, '$1 − ').replace(/\^/g, '^');
+}
+function calcExpr(src) {
+  const t = calcPrep(src).t;
   if (!t) return NaN;
-  if (t.includes(',')) t = t.replace(/\.(?=\d)/g, '').replace(/,/g, '.');   // 1.234,5 → 1234.5
-  else t = t.replace(/(\d)\.(?=\d{3}(\D|$))/g, '$1');                     // 1.200 → 1200 (Tausenderpunkt)
   let i = 0;
   const peek = () => t[i];
   const num = () => { const m = /^\d*\.?\d+(e[+-]?\d+)?|^\d+\.?/.exec(t.slice(i)); if (!m) throw 0; i += m[0].length; return parseFloat(m[0]); };
@@ -570,7 +585,11 @@ const isExpr = s => /\d\s*[-+*/×÷:^x−]\s*[\d(]|[()]|\^/.test(String(s || '')
 function bindCalc(p) {
   const inp = $('#' + p + '-calc'), keys = $('#' + p + '-calckeys'), prev = $('#' + p + '-calcprev'); if (!inp || !keys || keys.dataset.bound) return;
   keys.dataset.bound = '1';
-  const show = () => { const v = inp.value; const r = calcExpr(v); prev.textContent = isExpr(v) ? (Number.isFinite(r) ? '= ' + fmtRes(Math.round(r * 1e6) / 1e6) : '…') : ''; };
+  const show = () => {
+    const v = inp.value, r = calcExpr(v), th = calcPrep(v).thousands;
+    if (!isExpr(v) && !th.length) { prev.textContent = ''; return; }
+    prev.innerHTML = `<span class="calc-read">${esc(calcShow(v))}</span> <b>= ${Number.isFinite(r) ? fmtRes(Math.round(r * 1e6) / 1e6) : '…'}</b>${th.length ? `<span class="calc-warn">${esc(th.join(', '))} als Tausender gelesen. Für eine Kommazahl schreibe ${esc(th[0].replace('.', ','))}</span>` : ''}`;
+  };
   inp.addEventListener('input', show);
   // pointerdown statt click: Fokus bleibt im Feld, die Handy-Tastatur geht nicht zu
   keys.addEventListener('pointerdown', e => {
@@ -662,7 +681,7 @@ function resultHtml(c, r) {
   if (!r) return '';
   if (c.type === 'order') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : `Nicht ganz: ${r.hits} von ${c.items.length} an der richtigen Stelle`}</div>${r.ok ? '' : '<span class="eyebrow">Richtige Reihenfolge</span>' + orderSolution(c)}<br>`;
   if (c.type === 'table') return `<div class="verdict ${r.ok ? 'ok' : 'no'}" id="tb-verdict">${tableVerdict(r)}</div><p class="small muted">Die App vergleicht nach Stichworten. Tippe auf ein Feld, wenn die Bewertung nicht passt.</p>`;
-  if (c.type === 'calc') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Falsch'}: Lösung ${fmtRes(c.answer)} ${esc(c.unit)}</div>${r.expr ? `<p class="small muted">Deine Rechnung: <span class="num">${esc(r.expr)} = ${fmtRes(Math.round(r.given * 1e6) / 1e6)}</span></p>` : ''}<br>`;
+  if (c.type === 'calc') return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Falsch'}: Lösung ${fmtRes(c.answer)} ${esc(c.unit)}</div>${r.expr ? `<p class="small muted">Deine Rechnung: <span class="num">${esc(calcShow(r.expr))} = ${fmtRes(Math.round(r.given * 1e6) / 1e6)}</span></p>` : ''}<br>`;
   return `<div class="verdict ${r.ok ? 'ok' : 'no'}">${r.ok ? 'Richtig' : 'Nicht ganz'}</div><br>`;
 }
 const tableVerdict = r => r.hits === r.total ? `Richtig: alle ${r.total} Felder` : `${r.hits} von ${r.total} Feldern richtig`;
