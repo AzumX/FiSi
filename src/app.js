@@ -138,7 +138,8 @@ function cellHit(sol, given, alts) {
     // ganze Lösung im Text enthalten zählt, außer ein Zusatz wie „sehr“ oder „nicht“ ändert die Bedeutung („sehr hoch“ ≠ „hoch“)
     if (a === s || ((' ' + a + ' ').includes(' ' + s + ' ') && !a.split(' ').some(w => MODS.has(w) && !s.split(' ').includes(w)))) return true;
     // reine Zahlenwerte (IP-Adressen, Masken, Beträge) nur exakt werten, sonst ginge 192.168.10.191 für …159 durch
-    if (/^[\d\s.,:/%€-]+$/.test(String(x).replace(/\*\*|`/g, ''))) return false;
+    const raw = String(x).replace(/\*\*|`/g, '').trim();
+    if (/^[\d\s.,:/%€-]+$/.test(raw) || /^[0-9a-f]*[:.][0-9a-f:./]*$/i.test(raw)) return false; // auch IPv6- und MAC-Adressen
     const kw = keyWords(x); if (kw.length < 2) return false;
     // längere Zellen: mindestens die Hälfte der Schlüsselwörter (auch als Wortanfang) genannt
     const aw = a.split(' ');
