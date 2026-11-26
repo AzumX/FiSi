@@ -32,6 +32,14 @@ Die PDFs hier im Projekt-Chat hochladen. Ich lese die Karten aus, ordne Lernfeld
 
 Die Importdatei liest du in der App unter **Daten → Karten importieren** ein, am PC und auf dem Handy, oder auf einem Gerät und gleichst dann ab.
 
-## Alte Prüfungen
+## Alte Prüfungen (AP1 und AP2)
 
-PDFs der alten AP1-Prüfungen (Aufgaben und, falls vorhanden, Lösungshinweise) genauso hochladen. Jede Teilaufgabe wird eine eigene Karte im Stapel z. B. „AP1 Frühjahr 2024“, mit Punkten, Typ (Rechnen, Multiple Choice, offen) und Bildern. Diesen Stapel kannst du dann in der Prüfungssimulation als ganze Prüfung durchspielen.
+PDFs der Prüfungen mit den Lösungsvorschlägen hochladen, gescannt oder digital. Pro Prüfungsteil entsteht ein eigener Stapel, z. B. „AP1 Winter 2026/27“ oder „AP2 Winter 2026/27 · Netzwerke (FISI)“:
+
+- **eine Karte pro Teilaufgabe** mit den Originalpunkten
+- **passender Typ:** Rechnen, Multiple Choice, Reihenfolge, Lückentabelle (Subnetze, Netzplan …) oder offen
+- **Bilder** aus der Prüfung (Netzwerkpläne, ERM, Diagramme), wo sie zum Lösen nötig sind
+- **Verknüpfung** mit den passenden Lernkarten
+- **Anmerkungen** in kursiv, wo der Lösungsvorschlag fehlerhaft oder unvollständig ist
+
+Digitale Anlagen (xlsx, html, drawio, Screenshots) gern mitschicken, sonst werden die Werte aus dem Lösungsvorschlag übernommen.
