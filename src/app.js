@@ -421,12 +421,12 @@ function relatedHtml(c) {
     ? [...S.cards.values()].filter(o => refNums(o).includes(+c.id.slice(3))).map(o => o.id)
     : [...new Set(refNums(c))].map(n => 'uf-' + String(n).padStart(3, '0')).filter(id => id !== c.id && S.cards.has(id));
   if (!ids.length) return '';
-  const title = c.id.startsWith('uf-') ? `Übungsaufgabe${ids.length > 1 ? 'n' : ''} dazu` : `Passende Lernkarte${ids.length > 1 ? 'n' : ''}`;
+  const title = c.id.startsWith('uf-') ? `Aufgabe${ids.length > 1 ? 'n' : ''} dazu` : `Passende Lernkarte${ids.length > 1 ? 'n' : ''}`;
   return `<div class="related"><div class="small muted">${title}:</div>${ids.map(id => {
     const r = S.cards.get(id);
-    const label = id.startsWith('uf-') ? `Nr. ${+id.slice(3)}` : 'Übung';
+    const label = id.startsWith('uf-') ? `Nr. ${+id.slice(3)}` : r.deck === 'Übung' ? 'Übung' : esc(r.deck) + ' · ' + esc(r.id.replace(/^.*-(?=\d)/, ''));
     const q = r.id.startsWith('uf-') ? '' : renderContent(r.front, r.images);
-    return `<details class="related-card"><summary><b>${label}</b> · ${esc(r.front.replace(/!\[\]\(bild:\d+\)/g, '').replace(/[*_`]/g, '').split('\n')[0].slice(0, 90))}</summary>${q}${q ? '<hr>' : ''}${renderContent(r.back, r.backImages)}</details>`;
+    return `<details class="related-card"><summary><b>${label}</b> · ${esc(r.front.replace(/^_[^\n]*_\n+/, '').replace(/!\[\]\(bild:\d+\)/g, '').replace(/[*_`]/g, '').split('\n')[0].slice(0, 90))}</summary>${q}${q ? '<hr>' : ''}${renderContent(r.back, r.backImages)}</details>`;
   }).join('')}</div>`;
 }
 function renderStudy(main) {
