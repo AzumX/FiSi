@@ -8,8 +8,16 @@ const LF = {
   4: 'Schutzbedarfsanalyse im eigenen Arbeitsbereich',
   5: 'Software zur Verwaltung von Daten anpassen',
   6: 'Serviceanfragen bearbeiten',
+  7: 'Cyber-physische Systeme ergänzen',
+  8: 'Daten systemübergreifend bereitstellen',
+  9: 'Netzwerke und Dienste bereitstellen',
+  10: 'Serverdienste bereitstellen und Administrationsaufgaben automatisieren',
+  11: 'Betrieb und Sicherheit vernetzter Systeme gewährleisten',
+  12: 'Kundenspezifische Systemintegration durchführen',
   0: 'Ohne Lernfeld'
 };
+// LF 1–6 = AP1, LF 7–12 = AP2 (FISI). LF 7–12 erscheinen in Auswahllisten nur, wenn es Karten dazu gibt.
+const lfList = () => [1, 2, 3, 4, 5, 6, ...[7, 8, 9, 10, 11, 12].filter(l => [...S.cards.values()].some(c => c.lf === l)), 0];
 const APP_VERSION = '__VERSION__';
 const versionText = () => /^\d{12}$/.test(APP_VERSION) ? `${APP_VERSION.slice(6, 8)}.${APP_VERSION.slice(4, 6)}.${APP_VERSION.slice(0, 4)}, ${APP_VERSION.slice(8, 10)}:${APP_VERSION.slice(10)} UTC` : APP_VERSION;
 const TYPES = { basic: 'Karteikarte', mc: 'Multiple Choice', calc: 'Rechenaufgabe', open: 'Offene Aufgabe', order: 'Reihenfolge', table: 'Lückentabelle' };
@@ -129,6 +137,8 @@ function cellHit(sol, given, alts) {
     const s = foldTxt(x); if (!s) return false;
     // ganze Lösung im Text enthalten zählt, außer ein Zusatz wie „sehr“ oder „nicht“ ändert die Bedeutung („sehr hoch“ ≠ „hoch“)
     if (a === s || ((' ' + a + ' ').includes(' ' + s + ' ') && !a.split(' ').some(w => MODS.has(w) && !s.split(' ').includes(w)))) return true;
+    // reine Zahlenwerte (IP-Adressen, Masken, Beträge) nur exakt werten, sonst ginge 192.168.10.191 für …159 durch
+    if (/^[\d\s.,:/%€-]+$/.test(String(x).replace(/\*\*|`/g, ''))) return false;
     const kw = keyWords(x); if (kw.length < 2) return false;
     // längere Zellen: mindestens die Hälfte der Schlüsselwörter (auch als Wortanfang) genannt
     const aw = a.split(' ');
@@ -242,7 +252,7 @@ function filtered(f = filter) {
 const topicsFor = () => [...new Set(filtered({ ...filter, topic: 'all', type: 'all', q: '' }).map(c => c.topic).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'de'));
 function filterControls(prefix, opts = {}) {
   return `<div class="fields">
-    <label class="field">Lernfeld<select id="${prefix}-lf">${['all', 1, 2, 3, 4, 5, 6, 0].map(v => `<option value="${v}" ${String(filter.lf) === String(v) ? 'selected' : ''}>${v === 'all' ? 'Alle Lernfelder' : (v ? 'LF ' + v + ' · ' : '') + LF[v]}</option>`).join('')}</select></label>
+    <label class="field">Lernfeld<select id="${prefix}-lf">${['all', ...lfList()].map(v => `<option value="${v}" ${String(filter.lf) === String(v) ? 'selected' : ''}>${v === 'all' ? 'Alle Lernfelder' : (v ? 'LF ' + v + ' · ' : '') + LF[v]}</option>`).join('')}</select></label>
     <label class="field">Stapel<select id="${prefix}-deck"><option value="all">Alle Stapel</option>${decks().map(d => `<option ${filter.deck === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
     <label class="field">Thema<select id="${prefix}-topic"><option value="all">Alle Themen</option>${topicsFor().map(t => `<option ${filter.topic === t ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
     ${opts.type ? `<label class="field">Typ<select id="${prefix}-type"><option value="all">Alle Typen</option>${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${filter.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>` : ''}
@@ -272,7 +282,10 @@ function cardStatus(id) {
   return 'learning';
 }
 function dueCards(list) { const now = Date.now(); return list.filter(c => { const st = S.states.get(c.id); return st && st.state !== 'new' && st.due <= now; }); }
-function newCards(list) { return list.filter(c => !S.states.has(c.id) || S.states.get(c.id).state === 'new'); }
+// Reiner AP2-Stoff (LF 7–12) kommt nicht ungefragt in die täglichen neuen Karten, sondern nur,
+// wenn man gezielt einen Stapel oder ein Lernfeld ab 7 auswählt. Wiederholungen laufen normal weiter.
+const ap2Only = c => c.lf >= 7;
+function newCards(list) { const all = filter.deck === 'all' && !(+filter.lf >= 7); return list.filter(c => (!S.states.has(c.id) || S.states.get(c.id).state === 'new') && !(all && ap2Only(c))); }
 function introducedToday() { const t0 = startOfDay(); return S.logs.filter(l => l.ts >= t0 && l.wasNew && !l.cram).length; }
 function recommendedNewPerDay() {
   const remaining = newCards([...S.cards.values()]).length;
@@ -355,7 +368,7 @@ function roundsPanel() {
 }
 function lfBars() {
   const all = [...S.cards.values()];
-  return [1, 2, 3, 4, 5, 6, 0].map(lf => {
+  return lfList().map(lf => {
     const cs = all.filter(c => c.lf === lf); if (!cs.length) return '';
     const m = cs.filter(c => cardStatus(c.id) === 'mastered').length, l = cs.filter(c => cardStatus(c.id) === 'learning').length;
     return `<div class="lfbar"><span>${lf ? '<b>LF ' + lf + '</b> · ' : ''}${esc(LF[lf])}</span><span class="muted num small">${m}/${cs.length}</span>
@@ -735,7 +748,7 @@ function viewEditor(main, card) {
     <div class="fields">
       <label class="field">ID<input type="text" id="ed-id" value="${esc(c.id)}" ${isNew ? '' : 'readonly'}></label>
       <label class="field">Stapel<input type="text" id="ed-deck" value="${esc(c.deck)}" list="ed-decks"><datalist id="ed-decks">${decks().map(d => `<option value="${esc(d)}">`).join('')}</datalist></label>
-      <label class="field">Lernfeld<select id="ed-lf">${[1, 2, 3, 4, 5, 6, 0].map(v => `<option value="${v}" ${c.lf === v ? 'selected' : ''}>${v ? 'LF ' + v : 'Ohne'}</option>`).join('')}</select></label>
+      <label class="field">Lernfeld<select id="ed-lf">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 0].map(v => `<option value="${v}" ${c.lf === v ? 'selected' : ''}>${v ? 'LF ' + v : 'Ohne'}</option>`).join('')}</select></label>
       <label class="field">Typ<select id="ed-type">${Object.entries(TYPES).map(([k, v]) => `<option value="${k}" ${c.type === k ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
       <label class="field">Thema<input type="text" id="ed-topic" value="${esc(c.topic)}"></label>
       <label class="field">Schwierigkeit<select id="ed-level">${[['', '–'], [1, '●○○ leicht'], [2, '●●○ mittel'], [3, '●●● schwer']].map(([v, t]) => `<option value="${v}" ${String(c.level ?? '') === String(v) ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
@@ -959,7 +972,7 @@ function viewStats(main) {
     while (days.has(d)) { n++; d = startOfDay(d - DAY / 2); }
     return n;
   })();
-  const rows = [1, 2, 3, 4, 5, 6, 0].map(lf => {
+  const rows = lfList().map(lf => {
     const cs = all.filter(c => c.lf === lf); if (!cs.length) return '';
     const ids = new Set(cs.map(c => c.id));
     const ls = S.logs.filter(l => ids.has(l.card) && !l.cram);
