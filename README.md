@@ -1,4 +1,4 @@
-# AP1-Trainer FISI
+# AP1/AP2-Trainer FISI
 
 Lern-App für die Abschlussprüfung der **Fachinformatiker/innen Systemintegration**: Teil 1 (AP1) und Teil 2 (AP2).
 Sie läuft im Browser am PC und auf dem Handy, funktioniert offline und speichert alles nur auf dem eigenen Gerät.
