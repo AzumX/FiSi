@@ -152,7 +152,16 @@ function cellHit(sol, given, alts) {
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
 const fmtNum = (n, d = 0) => Number(n).toLocaleString('de-DE', { maximumFractionDigits: d, minimumFractionDigits: d });
-const fmtRes = n => Number(n).toLocaleString('de-DE', { maximumFractionDigits: 4 });
+const SUP = s => String(s).replace(/[-0-9]/g, ch => '⁻⁰¹²³⁴⁵⁶⁷⁸⁹'['-0123456789'.indexOf(ch)]);
+// Sehr große Zahlen als Zehnerpotenz (z. B. 2^64 → „2⁶⁴ ≈ 1,84 × 10¹⁹“), sonst deutsch formatiert
+const fmtRes = n => {
+  n = Number(n); const a = Math.abs(n);
+  if (!Number.isFinite(n) || a < 1e12) return n.toLocaleString('de-DE', { maximumFractionDigits: 4 });
+  const e = Math.floor(Math.log10(a)), m = n / 10 ** e;
+  const sci = `${m.toLocaleString('de-DE', { maximumFractionDigits: 2 })} × 10${SUP(e)}`;
+  const k = Math.round(Math.log2(a));
+  return 2 ** k === a ? `2${SUP(k)} ≈ ${sci}` : sci;
+};
 const startOfDay = (t = Date.now()) => { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); };
 const daysToExam = () => Math.ceil((new Date(S.settings.examDate + 'T08:00:00').getTime() - Date.now()) / DAY);
 const schedOpts = () => ({ retention: S.settings.retention, maxInterval: Math.max(1, Math.min(365, daysToExam() - 3)) });
